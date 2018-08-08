@@ -35,16 +35,24 @@ UsePackages( pkgs=c("dplyr","RCPmod", "raster", "rasterVis", "tidyr", "png") )
 enviro.variables <- c("Long_MP", "log_depth", "caisom_floor_temperature" )  # CHANGE to match environmental variables used for BHM
 id_vars="HaulIndex"
 sample_vars="Season"
+nstarts <- 100  # editted this line from nstarts <- 1000
+max.nRCP <- 6   # editted this line from max.nRCP <- 6
 
 distribution <- "NegBin"  # Change to "Bernoulli" for P/A data
 gen.start.val <- "random2"
 n.sites <- 181 # Number of sites in study area
 
+# Directories  
+# ===========
+# Subfolder for output 
+outdir <- file.path("Models", Sys.Date() )  # Set this to Models/Tday's Date/...
+suppressWarnings( dir.create( outdir, recursive = TRUE ) )
+
 # Load the data
 # =============
 # Fish example code has species and covariates in the same csv file
 covariates.species <- read.csv("./Sample_data/SubAntFish_bioenv.csv", header=T, stringsAsFactors=F)
-species <- names(covariates.species)[9:23]
+species <- names(covariates.species)[9:23] 
 
 # Generate datafile with orthogonal polynomial terms
 rcp_env_vars <- c( "Long_MP", "log_depth", "caisom_floor_temperature" )  # CHANGE to match environmental variables used for BHM
@@ -60,7 +68,10 @@ rcp_data <- rcp_poly$rcp_data
 
 # Load rasters & create dataframe of prediction space --- NEED to set environmental layers up to be read in as a raster brick (?I think?)
 pred_masked <- brick( "./Sample_data/pred_masked" )
-plot(pred_masked)
+filename <- paste( ".", outdir, "Enviro.Layers.pdf", sep = "/" )
+pdf( file=filename, width = 4, height = 4 )
+  plot(pred_masked)
+dev.off()
 
 # Convert rasters to dataframe and log transform depth
 pred_space_rcp <- as.data.frame(rasterToPoints(
@@ -80,12 +91,10 @@ rcp_poly_pred <- poly_pred_space(pred_space_rcp, rcp_poly$poly_output,
 form <- as.formula(paste("cbind(",paste(species, collapse=", "),")~",paste(names(rcp_data)[18:23], collapse="+")))
 form
 
-# Run RCPs --- with sampling effect
+# Run RCPs --- WITH sampling effect
 # =================================
 # Season/Year as sampling effect ---- CHANGE to survey (month/year) for BHM data
 # This bit  will take a while on a single core machine
-nstarts <- 100  # editted this line from nstarts <- 1000
-max.nRCP <- 6   # editted this line from max.nRCP <- 6
 nRCPs_samp <- list() 
 
 # for( ii in 1:max.nRCP) # This for loop throws an error when nRCP equals 2. Function is aborted. Confusing b/c the example starts at nRCP=1
@@ -124,9 +133,11 @@ RCPsamp_BICs[RCPsamp_ObviouslyBad] <- NA
 
 # Plot minimum BIC for each nRCP
 RCPsamp_minBICs <- apply(RCPsamp_BICs, 2, min, na.rm=TRUE)
-
-plot( names(nRCPs_samp), RCPsamp_minBICs, type='b', ylab="BIC", xlab="nRCP", pch=20)
-points( rep(names(nRCPs_samp), each=nrow( RCPsamp_BICs)), RCPsamp_BICs, pch=20)
+filename <- paste( ".", outdir, "nRCPs_Samp.pdf", sep = "/" )
+pdf( file=filename, width = 4, height = 4 )
+  plot( names(nRCPs_samp), RCPsamp_minBICs, type='b', ylab="BIC", xlab="nRCP", pch=20)
+  points( rep(names(nRCPs_samp), each=nrow( RCPsamp_BICs)), RCPsamp_BICs, pch=20)
+dev.off()
 
 # Choose best model from above 
 # set variables to match the lowest BIC with a number of RCPs
@@ -137,30 +148,38 @@ inits_best <- unlist( nRCPs_samp[[nRCP_best]][[3]]$coef)
 # ==================================
 control <- list( optimise=FALSE, quiet=FALSE)
 RCPsamp_fin <- regimix(form.RCP=form, form.spp=~Season, 
-                     nRCP=nRCP_best, data=rcp_data, dist="NegBin", inits = inits_best, control=control)
+                     nRCP=nRCP_best, data=rcp_data, dist=distribution, inits = inits_best, control=control)
 
 # Clean-up workspace
-rm(RCPsamp_BICs,RCPsamp_minPosteriorSites, RCPsamp_ObviouslyBad, RCPsamp_minBICs, RCPsamp_goodun, control)
+rm(RCPsamp_BICs,RCPsamp_minPosteriorSites, RCPsamp_ObviouslyBad, RCPsamp_minBICs, control)
 
 # Plot model diagnostics
 # ======================
 # To do:  Add code to save figures to pdf files
 # Residual plots
-plot.regimix(RCPsamp_fin, type="RQR", fitted.scale="log")
+filename <- paste( ".", outdir, "Residuals_Samp.pdf", sep = "/" )
+pdf( file=filename, width = 6, height = 4 )
+  plot.regimix(RCPsamp_fin, type="RQR", fitted.scale="log")
+dev.off()
 
 # Cooks Distance Plots
 # Takes a while...
 tmp <- stability.regimix(RCPsamp_fin, oosSizeRange=c(1,2,3,4,5,6,7,8,9,10,20,30,40,50), mc.cores=1, times=RCPsamp_fin$n, doPlot=FALSE) # original
 #tmp <- stability.regimix(RCPsamp_fin, oosSizeRange=c(1,2,5,10,20), mc.cores=1, times=RCPsamp_fin$n, doPlot=FALSE) # simplified, but missing horizontal line
-plot( tmp, minWidth=2, ncuts=111 ) 
-
-saveRDS(tmp, file="Fish.Cooks.Dist.rds")
-tmp <- readRDS("Fish.Cooks.Dist.rds")
+saveRDS( tmp, file="Fish.Cooks.Dist.rds" )
+#tmp <- readRDS("Fish.Cooks.Dist.rds")
+filename <- paste( ".", outdir, "Cooks.Distance.Samp.pdf", sep = "/" )
+pdf( file=filename, width = 6, height = 4 )
+  plot( tmp, minWidth=2, ncuts=111 ) 
+dev.off()
 
 # Examine dispersion parameter for negative Binomial  --- would this change with a Bernoulli distribution?
-par(mfrow=c(1,1))
-hist(RCPsamp_fin$coefs$disp, xlab="Dispersion Parameter", 
-     main="Negative Binomial Model", col="grey", cex.main=0.8, cex=0.8, cex.lab=0.8 )
+par( mfrow=c(1,1) )
+filename <- paste( ".", outdir, "Dispersion.Parameter.pdf", sep = "/" )
+pdf( file=filename, width = 4, height = 4)
+  hist(RCPsamp_fin$coefs$disp, xlab="Dispersion Parameter", 
+      main="Negative Binomial Model", col="grey", cex.main=0.8, cex=0.8, cex.lab=0.8 )
+  dev.off()
 
 # Generate bootstrap estimates of parameters
 # ==========================================
@@ -190,8 +209,122 @@ sampling_dotplot2(RCPsamp_fin,rcpsamp_boots,legend_fact=c("Spring", "Summer"), c
 RCPsamp_SpPreds<-predict.regimix(object=RCPsamp_fin, object2=rcpsamp_boots, newdata=rcp_poly_pred)
 # ??predict_maps2_SDF2()
 # Plot RCP predictions
-predict_maps2_SDF2(RCPsamp_SpPreds, pred_space=pred_space_rcp, pred_crop=pred_masked, nRCP=3)
+filename <- paste( ".", outdir, "Spatial.Preds.Samp.pdf", sep = "/" )
+pdf( file=filename, width = 4, height = 4 )
+  predict_maps2_SDF2(RCPsamp_SpPreds, pred_space=pred_space_rcp, pred_crop=pred_masked, nRCP=nRCP_best)
+dev.off()
 
 # To do:
 # Is there a way to export predictions to a shapefile?
+
+# Clean-up variables...
+
+rm(nRCP_best)
+
+#================================================================================================
+#################################################################################################
+#================================================================================================
+
+# Run RCPs --- WITHOUT sampling effect
+# ====================================
+
+nRCPs_NoSamp <- list()
+
+# for( ii in 1:max.nRCP){
+#   nRCPs_NoSamp[[ii]] = tryCatch({regimix.multifit(form.RCP=form, data=rcp_data, nRCP=ii,
+#                                                   inits="random2", nstart=nstarts, dist="NegBin", mc.cores=1)},
+#                                 error=function(ii){return(NA)})
+# }
+
+# Populate list manually
+nRCPs_NoSamp[[1]] <- regimix.multifit(form.RCP=form, data=rcp_data, nRCP=1,
+                                    inits=gen.start.val, nstart=nstarts, dist=distribution, mc.cores=1)
+nRCPs_NoSamp[[2]] <- regimix.multifit(form.RCP=form, data=rcp_data, nRCP=2,
+                                    inits=gen.start.val, nstart=nstarts, dist=distribution, mc.cores=1) # throws an error!
+nRCPs_NoSamp[[3]] <- regimix.multifit(form.RCP=form, data=rcp_data, nRCP=3,
+                                    inits=gen.start.val, nstart=nstarts, dist=distribution, mc.cores=1)
+nRCPs_NoSamp[[4]] <- regimix.multifit(form.RCP=form, data=rcp_data, nRCP=4,
+                                    inits=gen.start.val, nstart=nstarts, dist=distribution, mc.cores=1)
+nRCPs_NoSamp[[5]] <- regimix.multifit(form.RCP=form, data=rcp_data, nRCP=5,
+                                    inits=gen.start.val, nstart=nstarts, dist=distribution, mc.cores=1)
+nRCPs_NoSamp[[6]] <- regimix.multifit(form.RCP=form, data=rcp_data, nRCP=6,
+                                    inits=gen.start.val, nstart=nstarts, dist=distribution, mc.cores=1)
+
+saveRDS(nRCPs_NoSamp, file="nRCPs_NoSamp.rds")
+
+# Determine best model
+# ====================
+# Name list elements & remove elements with null values (model failed to run properly for nRCP=2)
+names(nRCPs_NoSamp) <- seq_along(nRCPs_NoSamp)
+nRCPs_NoSamp[sapply(nRCPs_NoSamp, is.null)] <- NULL
+
+# Get BICs
+RCPNoSamp_BICs <- sapply( nRCPs_NoSamp, function(x) sapply( x, function(y) y$BIC))
+
+# Are any RCPs consisting of a small number of sites?  (A posteriori) If so remove.
+RCPNoSamp_minPosteriorSites <- cbind( n.sites, sapply( nRCPs_NoSamp[-1], function(y) sapply( y, function(x) min( colSums( x$postProbs)))))
+RCPNoSamp_ObviouslyBad <- RCPNoSamp_minPosteriorSites < 2
+RCPNoSamp_BICs[RCPNoSamp_ObviouslyBad] <- NA
+
+# Plot minimum BIC for each nRCP
+RCPNoSamp_minBICs <- apply( RCPNoSamp_BICs, 2, min, na.rm=TRUE )
+filename <- paste( ".", outdir, "nRCPs_NoSamp.pdf", sep = "/" )
+pdf(file=filename, width = 6, height = 4)
+  plot( names(nRCPs_NoSamp), RCPNoSamp_minBICs, type='b', ylab="BIC", xlab="nRCP", pch=20)
+  points( rep(names(nRCPs_NoSamp), each=nrow( RCPNoSamp_BICs)), RCPNoSamp_BICs, pch=20)
+dev.off()
+
+# Choose best model from above and save used arguments
+nRCP_best <- as.numeric(which.min(RCPNoSamp_minBICs))
+inits_best <- unlist( nRCPs_NoSamp[[nRCP_best]][[3]]$coef)
+
+# Rerun best model (for full output)
+# ==================================
+control <- list( optimise=FALSE, quiet=FALSE)
+RCPNoSamp_fin<-regimix(form.RCP=form, 
+                       nRCP=nRCP_best, data=rcp_data, dist=distribution, inits = inits_best, control=control)
+
+# Clean-up workspace
+rm(RCPNoSamp_BICs,RCPNoSamp_minPosteriorSites, RCPNoSamp_ObviouslyBad, RCPNoSamp_minBICs)
+
+# Plot model diagnostics
+# ======================
+# Residual plot
+filename <- paste( ".", outdir, "Residuals_NoSamp.pdf", sep = "/" )
+pdf(file="./Output/Residuals_NoSamp.pdf", width = 6, height = 4)
+  plot.regimix(RCPNoSamp_fin, type="RQR", fitted.scale="log") 
+dev.off()
+
+# Cooks Distance Plots
+# will take a while to run
+tmp <- stability.regimix(RCPNoSamp_fin, oosSizeRange=c(1,2,3,4,5,6,7,8,9,10,20,30,40,50), mc.cores=1, times=RCPsamp_fin$n)
+#tmp <- stability.regimix(RCPsamp_fin, oosSizeRange=c(1,2,5,10,20), mc.cores=1, times=RCPsamp_fin$n, doPlot=FALSE) # simplified, but missing horizontal line
+saveRDS(tmp, file="Fish.Cooks.Dist.NoSamp.rds")
+filename <- paste( ".", outdir, "Cooks.Distance.NoSamp.pdf", sep = "/" )
+#tmp <- readRDS("Fish.Cooks.Dist.rds")
+pdf(file=filename, width = 6, height = 4)
+  plot( tmp, minWidth=2, ncuts=111 ) 
+dev.off()
+
+# Generate bootstrap estimates of parameters
+# ==========================================
+# Warning --- bootstrap is slooow
+rcpNoSamp_boots <- regiboot( RCPNoSamp_fin, type="BayesBoot", nboot=1000, mc.cores=1 )
+
+# Spatial Predictions
+# ===================
+RCPNoSamp_SpPreds <- predict.regimix( object=RCPNoSamp_fin, object2=rcpNoSamp_boots, newdata=rcp_poly_pred )
+# ??predict_maps2_SDF2()
+# Plot RCP predictions
+# function(predictions,     #output from predict.regimix
+# pred_space,      #dataframe containing coordinates for the prediction space
+# pred_crop,       #raster of extent of prediction space (used in rasterize function)
+# nRCP,            #the number of RCPs
+# my.ylim=NULL,    #y limit to plot
+# my.xlim=NULL,    #x limit to plot
+# my.asp=1)        #aspect for plotting
+filename <- paste( ".", outdir, "Spatial.Preds.NoSamp.pdf", sep = "/" )
+pdf( file=filename, width = 4, height = 4 )
+  predict_maps2_SDF2( RCPNoSamp_SpPreds, pred_space=pred_space_rcp, pred_crop=pred_masked, nRCP=nRCP_best )
+dev.off()
 
