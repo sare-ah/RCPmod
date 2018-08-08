@@ -69,7 +69,7 @@ rcp_data <- rcp_poly$rcp_data
 # Load rasters & create dataframe of prediction space --- NEED to set environmental layers up to be read in as a raster brick (?I think?)
 pred_masked <- brick( "./Sample_data/pred_masked" )
 filename <- paste( ".", outdir, "Enviro.Layers.pdf", sep = "/" )
-pdf( file=filename, width = 4, height = 4 )
+pdf( file=filename, width = 6, height = 4 )
   plot(pred_masked)
 dev.off()
 
@@ -116,6 +116,7 @@ nRCPs_samp[[6]] <- regimix.multifit(form.RCP=form, form.spp= ~ Season, data=rcp_
                                     inits=gen.start.val, nstart=nstarts, dist=distribution, mc.cores=1)
 
 saveRDS(nRCPs_samp, file="nRCPs_samp.rds")
+#nRCPs_samp <- readRDS("nRCPs_samp.rds")
 
 # Determine best model
 # ====================
@@ -139,9 +140,12 @@ pdf( file=filename, width = 4, height = 4 )
   points( rep(names(nRCPs_samp), each=nrow( RCPsamp_BICs)), RCPsamp_BICs, pch=20)
 dev.off()
 
-# Choose best model from above 
-# set variables to match the lowest BIC with a number of RCPs
-nRCP_best <- as.numeric(which.min(RCPsamp_minBICs))
+# Choose best model from above with the lowest BIC
+minBICs <- as.data.frame(RCPsamp_minBICs) # Create dataframe to manipulate b/c I can't capture index value of a list
+minBICs$RCP <- as.numeric( row.names(minBICs) ) # Create column for number of RCPs
+nRCP_best <- minBICs$RCP[which.min(minBICs$RCPsamp_minBICs)]
+
+# set variables to match the number of RCPs with the lowest BIC 
 inits_best <- unlist( nRCPs_samp[[nRCP_best]][[3]]$coef)
 
 # Rerun best model (for full output)
@@ -151,7 +155,7 @@ RCPsamp_fin <- regimix(form.RCP=form, form.spp=~Season,
                      nRCP=nRCP_best, data=rcp_data, dist=distribution, inits = inits_best, control=control)
 
 # Clean-up workspace
-rm(RCPsamp_BICs,RCPsamp_minPosteriorSites, RCPsamp_ObviouslyBad, RCPsamp_minBICs, control)
+rm(RCPsamp_BICs,RCPsamp_minPosteriorSites, RCPsamp_ObviouslyBad, RCPsamp_minBICs, control, minBICs)
 
 # Plot model diagnostics
 # ======================
@@ -179,13 +183,15 @@ filename <- paste( ".", outdir, "Dispersion.Parameter.pdf", sep = "/" )
 pdf( file=filename, width = 4, height = 4)
   hist(RCPsamp_fin$coefs$disp, xlab="Dispersion Parameter", 
       main="Negative Binomial Model", col="grey", cex.main=0.8, cex=0.8, cex.lab=0.8 )
-  dev.off()
+dev.off()
 
 # Generate bootstrap estimates of parameters
 # ==========================================
 # Warning --- bootstrap is slooow
 # rcpsamp_boots<-regiboot(RCPsamp_fin, type="BayesBoot", nboot=1000, mc.cores=1) # original code
 rcpsamp_boots<-regiboot(RCPsamp_fin, type="BayesBoot", nboot=100, mc.cores=1) # simplified
+saveRDS( rcpsamp_boots, file="RCPSamp_boots.rds" )
+#rcpsamp_boots <- readRDS("RCPSamp_boots.rds")
 
 # Evaluate sampling factor effect
 # ===============================
@@ -202,7 +208,10 @@ rownames(aut_samp) <- gsub("."," ", species, fixed=TRUE)
 
 # ??sampling_dotplot2()
 # Plot of sampling factor effects
-sampling_dotplot2(RCPsamp_fin,rcpsamp_boots,legend_fact=c("Spring", "Summer"), col=c("black", "red"), lty=c(1,2))
+filename <- paste( ".", outdir, "Sampling.Factor.Effects.pdf", sep = "/" )
+pdf( file=filename, width = 8, height = 4)
+  sampling_dotplot2(RCPsamp_fin,rcpsamp_boots,legend_fact=c("Spring", "Summer"), col=c("black", "red"), lty=c(1,2))
+dev.off()
 
 # Spatial Predictions
 # ===================
@@ -210,7 +219,7 @@ RCPsamp_SpPreds<-predict.regimix(object=RCPsamp_fin, object2=rcpsamp_boots, newd
 # ??predict_maps2_SDF2()
 # Plot RCP predictions
 filename <- paste( ".", outdir, "Spatial.Preds.Samp.pdf", sep = "/" )
-pdf( file=filename, width = 4, height = 4 )
+pdf( file=filename, width = 6, height = 4 )
   predict_maps2_SDF2(RCPsamp_SpPreds, pred_space=pred_space_rcp, pred_crop=pred_masked, nRCP=nRCP_best)
 dev.off()
 
@@ -218,7 +227,6 @@ dev.off()
 # Is there a way to export predictions to a shapefile?
 
 # Clean-up variables...
-
 rm(nRCP_best)
 
 #================================================================================================
@@ -227,7 +235,6 @@ rm(nRCP_best)
 
 # Run RCPs --- WITHOUT sampling effect
 # ====================================
-
 nRCPs_NoSamp <- list()
 
 # for( ii in 1:max.nRCP){
@@ -274,8 +281,12 @@ pdf(file=filename, width = 6, height = 4)
   points( rep(names(nRCPs_NoSamp), each=nrow( RCPNoSamp_BICs)), RCPNoSamp_BICs, pch=20)
 dev.off()
 
-# Choose best model from above and save used arguments
-nRCP_best <- as.numeric(which.min(RCPNoSamp_minBICs))
+# Choose best model from above with the lowest BIC
+minBICs <- as.data.frame(RCPNoSamp_minBICs) # Create dataframe to manipulate b/c I can't capture index value of a list
+minBICs$RCP <- as.numeric( row.names(minBICs) ) # Create column for number of RCPs
+nRCP_best <- minBICs$RCP[which.min(minBICs$RCPNoSamp_minBICs)]
+
+# set variables to match the number of RCPs with the lowest BIC 
 inits_best <- unlist( nRCPs_NoSamp[[nRCP_best]][[3]]$coef)
 
 # Rerun best model (for full output)
@@ -285,13 +296,13 @@ RCPNoSamp_fin<-regimix(form.RCP=form,
                        nRCP=nRCP_best, data=rcp_data, dist=distribution, inits = inits_best, control=control)
 
 # Clean-up workspace
-rm(RCPNoSamp_BICs,RCPNoSamp_minPosteriorSites, RCPNoSamp_ObviouslyBad, RCPNoSamp_minBICs)
+rm(RCPNoSamp_BICs,RCPNoSamp_minPosteriorSites, RCPNoSamp_ObviouslyBad, RCPNoSamp_minBICs, minBICs)
 
 # Plot model diagnostics
 # ======================
 # Residual plot
 filename <- paste( ".", outdir, "Residuals_NoSamp.pdf", sep = "/" )
-pdf(file="./Output/Residuals_NoSamp.pdf", width = 6, height = 4)
+pdf(file=filename, width = 6, height = 4)
   plot.regimix(RCPNoSamp_fin, type="RQR", fitted.scale="log") 
 dev.off()
 
@@ -300,8 +311,8 @@ dev.off()
 tmp <- stability.regimix(RCPNoSamp_fin, oosSizeRange=c(1,2,3,4,5,6,7,8,9,10,20,30,40,50), mc.cores=1, times=RCPsamp_fin$n)
 #tmp <- stability.regimix(RCPsamp_fin, oosSizeRange=c(1,2,5,10,20), mc.cores=1, times=RCPsamp_fin$n, doPlot=FALSE) # simplified, but missing horizontal line
 saveRDS(tmp, file="Fish.Cooks.Dist.NoSamp.rds")
+#tmp <- readRDS("Fish.Cooks.Dist.NoSamp.rds")
 filename <- paste( ".", outdir, "Cooks.Distance.NoSamp.pdf", sep = "/" )
-#tmp <- readRDS("Fish.Cooks.Dist.rds")
 pdf(file=filename, width = 6, height = 4)
   plot( tmp, minWidth=2, ncuts=111 ) 
 dev.off()
@@ -310,6 +321,9 @@ dev.off()
 # ==========================================
 # Warning --- bootstrap is slooow
 rcpNoSamp_boots <- regiboot( RCPNoSamp_fin, type="BayesBoot", nboot=1000, mc.cores=1 )
+saveRDS( rcpNoSamp_boots, file="RCPNoSamp_boots.rds" )
+#rcpNoSamp_boots <- readRDS("RCPNoSamp_boots.rds")
+
 
 # Spatial Predictions
 # ===================
