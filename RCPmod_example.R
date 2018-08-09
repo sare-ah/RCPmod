@@ -8,11 +8,6 @@
 # Date:       August 2, 2018
 ######################################################################################################################
 
-# TO DO:
-# Add code to export spatial predictions as a raster layer
-# Add code to build species profiles of each RCP (probability of species being a member of an RCP)
-
-
 # start fresh
 rm(list=ls())
 
@@ -37,23 +32,15 @@ UsePackages( pkgs=c("dplyr","RCPmod", "raster", "rasterVis", "tidyr") )
 
 # Controls
 # ========
-# REQUIRED
 enviro.variables <- c("Long_MP", "log_depth", "caisom_floor_temperature" )  # CHANGE to match environmental variables used for BHM
 id_vars="HaulIndex"
 sample_vars="Season"
 nstarts <- 100  # editted this line from nstarts <- 1000
-#max.nRCP <- 6   # not used when manually testing number of RCPs
+max.nRCP <- 6   # editted this line from max.nRCP <- 6
+
 distribution <- "NegBin"  # Change to "Bernoulli" for P/A data
 gen.start.val <- "random2"
 n.sites <- 181 # Number of sites in study area
-n.abund <- 9 # Define where species data starts in covariates.species, test with names(covariates.species)[n.abund]
-
-# OPTIONAL
-min.prevlance <- FALSE # specify T/F to subset data based on species prevalence
-species.n <- 10 # Minimum species prevalence
-subset.data <- FALSE # specify T/F to subset data or use all communities 
-subset.size <- 1000 # specifcy random subset size --- originally set to 1000
-siteNo <- covariates.species$HaulIndex # ADD FIELDNAME FOR Transect/DepthCategory
 
 # Directories  
 # ===========
@@ -67,33 +54,6 @@ suppressWarnings( dir.create( outdir, recursive = TRUE ) )
 covariates.species <- read.csv("./Sample_data/SubAntFish_bioenv.csv", header=T, stringsAsFactors=F)
 species <- names(covariates.species)[9:23] 
 
-# Conditional processing to subset sites used - ensure sitename column is correctly specified in controls
-if (subset.data) {
-  # specify the  subset to use in the analysis
-  set.seed(subset.size)
-  sample.sites <- sample(siteNo, subset.size)
-  covariates.species <- covariates.species[siteNo %in% sample.sites,]
-  print(paste0("Successfully subsetted [",subset.size,"] random sites"))
-} else {
-  print("No subsetting performed")
-}
-
-# Record site order --- we may need this later if we are subsetting the data 
-# site.names <- covariates.species$SiteNo # Change to Transect/DepthCategory field name
-
-# Conditional processing to subset number of species used based on species prevalence
-if (subset.data) {
-  # Determine in decreasing order the total count of each species within the study area
-  species.count <- data.frame(count=sort(colSums(covariates.species[,n.abund:ncol(covariates.species)]), decreasing=T))
-  species.count$species <- row.names(species.count)
-  # Select the species to be dropped and not used in the model
-  dropped.species <- species.count$species[species.count$count < species.n]
-  # Remove species columns from covariates.species that are not prevalent enough - otherwise poly_data() fails!
-  covariates.species <- covariates.species[ , !(names(covariates.species) %in% dropped.species)]
-  # Remove species names from species vector - otherwise poly_data() fails!
-  species <- setdiff(species, dropped.species)
-}
-
 # Generate datafile with orthogonal polynomial terms
 rcp_env_vars <- c( "Long_MP", "log_depth", "caisom_floor_temperature" )  # CHANGE to match environmental variables used for BHM
 
@@ -105,9 +65,6 @@ rcp_poly <- poly_data(poly_vars=rcp_env_vars, degree=c(2,2,2),
                     id_vars="HaulIndex",sample_vars="Season", 
                     species_vars=species, data=covariates.species)
 rcp_data <- rcp_poly$rcp_data
-filename <- paste( ".", outdir, "rcp_data.rds", sep = "/" )
-saveRDS(rcp_data, file=filename)
-#rcp_data <- readRDS(filename)
 
 # Load rasters & create dataframe of prediction space --- NEED to set environmental layers up to be read in as a raster brick (?I think?)
 pred_masked <- brick( "./Sample_data/pred_masked" )
@@ -265,6 +222,9 @@ filename <- paste( ".", outdir, "Spatial.Preds.Samp.pdf", sep = "/" )
 pdf( file=filename, width = 6, height = 4 )
   predict_maps2_SDF2(RCPsamp_SpPreds, pred_space=pred_space_rcp, pred_crop=pred_masked, nRCP=nRCP_best)
 dev.off()
+
+# To do:
+# Is there a way to export predictions to a shapefile?
 
 # Clean-up variables...
 rm(nRCP_best)
