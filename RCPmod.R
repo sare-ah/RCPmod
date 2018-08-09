@@ -11,7 +11,7 @@
 # TO DO:
 # Add code to export spatial predictions as a raster layer
 # Add code to build species profiles of each RCP (probability of species being a member of an RCP)
-
+# Write documentation for this code
 
 # start fresh
 rm(list=ls())
@@ -39,10 +39,10 @@ UsePackages( pkgs=c("dplyr","RCPmod", "raster", "rasterVis", "tidyr") )
 # ========
 # REQUIRED
 enviro.variables <- c("Long_MP", "log_depth", "caisom_floor_temperature" )  # CHANGE to match environmental variables used for BHM
-id_vars="HaulIndex"
-sample_vars="Season"
-nstarts <- 100  # editted this line from nstarts <- 1000
-#max.nRCP <- 6   # not used when manually testing number of RCPs
+id_vars="HaulIndex" # uUnique identifier for each record
+sample_vars="Season" # Field or fields that describe potential sampling effects
+nstarts <- 100  # Editted this line from nstarts <- 1000
+#max.nRCP <- 6   # Not used when manually testing number of RCPs
 distribution <- "NegBin"  # Change to "Bernoulli" for P/A data
 gen.start.val <- "random2"
 n.sites <- 181 # Number of sites in study area
@@ -51,8 +51,8 @@ n.abund <- 9 # Define where species data starts in covariates.species, test with
 # OPTIONAL
 min.prevlance <- FALSE # specify T/F to subset data based on species prevalence
 species.n <- 10 # Minimum species prevalence
-subset.data <- FALSE # specify T/F to subset data or use all communities 
-subset.size <- 1000 # specifcy random subset size --- originally set to 1000
+subset.data <- FALSE # Specify T/F to subset data or use all communities 
+subset.size <- 1000 # Specifcy random subset size --- originally set to 1000
 siteNo <- covariates.species$HaulIndex # ADD FIELDNAME FOR Transect/DepthCategory
 
 # Directories  
