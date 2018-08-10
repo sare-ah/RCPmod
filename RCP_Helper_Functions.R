@@ -223,7 +223,7 @@ predict_maps2_SDF2 <- function(predictions,     #output from predict.regimix
                                pred_space,      #dataframe containing coordinates for the prediction space
                                pred_crop,       #raster of extent of prediction space (used in rasterize function)
                                nRCP,            #the number of RCPs
-                               my.ylim=NULL,    #ylimit to plot
+                               my.ylim=NULL,    #y limit to plot
                                my.xlim=NULL,    #x limit to plot
                                my.asp=1)        #aspect for plotting
   {
