@@ -39,8 +39,7 @@ poly_data<-function(poly_vars,      #vector of predictor variable names to creat
   }
   names(store_polys)<-poly_vars
   
-  rcp_data<-na.omit(cbind(subset(data, select= c(id_vars, sample_vars, offset, species_vars)), 
-                          do.call(cbind, store_polys)))
+  rcp_data<-na.omit(cbind(subset(data, select= c(id_vars, sample_vars, offset, species_vars)),do.call(cbind, store_polys)))
   
   return(list(rcp_data=rcp_data, poly_output=store_polys))
 }
@@ -51,7 +50,7 @@ poly_data<-function(poly_vars,      #vector of predictor variable names to creat
 # Note: only accomodates one sampling term at the moment
 # Note: offset isn't actually used in predict function that predicts RCP membership, but will keep as it might be useful to predict expected abundance of species at site.
 
-poly_pred_space<-function(pred_space,             #dataframe containing variables
+poly_pred_space<-function(pred_space,             #dataframe containing variables (ras to points)
                           poly_output,            #extracted list of stored polynomial attribtutes from 'poly_data' function
                           offset_val=NULL,        #an offset value. Possibly mean of offset used in model building. Will be logged within function
                           offset_name=NULL,       #name of offset used in RCP model
@@ -67,7 +66,7 @@ poly_pred_space<-function(pred_space,             #dataframe containing variable
     pred_polys[[i]]<- predict( poly_output[[i]], pred_space[, names(pred_space) %in% vars[i]]) 
     dimnames(pred_polys[[i]])[[2]]<-dimnames(poly_output[[i]])[[2]]
   }
-  pred_polys_df<-as.data.frame(do.call(cbind, pred_polys))
+  pred_polys_df<-as.data.frame(do.call(cbind, pred_polys)) #data frame of polynomial-ized environmental data for footprint of raster stack
   
   #create offset term
   if(!is.null(offset_val)){
@@ -89,78 +88,137 @@ poly_pred_space<-function(pred_space,             #dataframe containing variable
 
 
 #### Calculate average SD and CI of species abundances in each RCP in each level of sampling factor.
-#Note: not generalised beyond HIMI case
+# Updated by K. Gale to be generalized to any input/any sampling levels 
+# Requires:
 # boot_obj= regiboot object
+# covariates.species= the species input table that contains a field for the sampling level (sample_vars, defined at start of RCP Mod)
+# Right now cannot do a version without the sampling level
 
-Sp_abund_all<-function(boot_obj) {
+Sp_abund_gen<-function(boot_obj, covariates.species) {
+  
   require(tidyr)
   
-  #set up coefficient extraction
-  taus<-grepl("tau",dimnames(boot_obj)[[2]])
-  alphas<-grepl("alpha",dimnames(boot_obj)[[2]])
-  gammas<-grepl("gamma",dimnames(boot_obj)[[2]])
+  levels<-data.frame(sample_var=unique(covariates.species[,sample_vars]))
+  levels$sample_var_short<-tolower(gsub("[[:punct:]]|\\s","",levels$sample_var)) #drop all special characters or spaces from level name. 
+  levels$sample_var_short<-gsub("\\s","",levels$sample_var_short)
+  results_levels<-paste0("res_",levels$sample_var_short)
   
-  autumn_res<-spring_res<-summer_res<-list()
+  #set up coefficient extraction
+  taus<-grepl("tau",dimnames(boot_obj)[[2]]) #for each species, difference from the mean (alpha) to mean for each RCP, for the first n-1 RCPs. 
+  #The last RCP means (tau) are calculated by the "sum to zero" constraint (negative sum of taus for the other RCPs, so sum(tau)=0 for each species )
+  alphas<-grepl("alpha",dimnames(boot_obj)[[2]]) #mean species prevalence overall in the dataset, on the logit scale
+  gammas<-grepl("gamma",dimnames(boot_obj)[[2]]) #Specifies the RCPs dependence on the covariates
+  
+  results<-rep( list(list()), length(results_levels) ) 
+  for (n in 1:length(results_levels)){
+    names(results)[n]<-results_levels[n]
+  }
   
   #run loop for each row in boot object
   for(i in 1:dim(boot_obj)[1]){
     
     #extract and reformat coeficients 
-    #tau
+    #tau - "regional profiles"
     temp_tau<-data.frame(value=boot_obj[i,taus])
+    rownames(temp_tau)<-gsub("^A_","A-",rownames(temp_tau)) #This is specific to the dive dataset - not super generalized
+    rownames(temp_tau)<-gsub("^I_","I-",rownames(temp_tau))
     temp_tau$species<-sapply(strsplit(rownames(temp_tau),"_"), "[", 1)
     temp_tau$coef<-sapply(strsplit(rownames(temp_tau),"_"), "[", 3)
     
-    tau_aut<-spread(temp_tau[,1:3], species, value)
-    tau_aut<-rbind( tau_aut[,-1], -colSums( tau_aut[,-1]))
+    #"Base Case" of the model. 
+    tau_base<-spread(temp_tau[,1:3], species, value) #convert to wide-mode table by "coef"
+    tau_base<-rbind( tau_base[,-1], -colSums( tau_base[,-1])) #add a row of the negative sum of tau for RCP (row), such that the sum of tau for each species across the RCPs is 0.
     
-    #alpha- OK as is
+    #alpha- OK as is. Mean of species prevalence (logit) overall. 
     temp_alphas<-boot_obj[i,alphas]
+    names(temp_alphas)<-gsub("^A_","A-",names(temp_alphas)) #not super generalized
+    names(temp_alphas)<-gsub("^I_","I-",names(temp_alphas))
     
-    #gamma
+    #gamma. Species dependence on covariates.
     temp_gamma<-data.frame(value=boot_obj[i,gammas])
+    rownames(temp_gamma)<-gsub("^A_","A-",rownames(temp_gamma)) #not super generalized
+    rownames(temp_gamma)<-gsub("^I_","I-",rownames(temp_gamma))
+    
     temp_gamma$species<-sapply(strsplit(rownames(temp_gamma),"_"), "[", 1)
     temp_gamma$coef<-sapply(strsplit(rownames(temp_gamma),"_"), "[", 3)
+    temp_gamma$sample_var<-gsub(paste(sample_vars),"",temp_gamma$coef)
+    temp_gamma<-merge(temp_gamma, levels, by="sample_var")
     
-    #not generalised beyond HIMI case
-    gamma_spring<-temp_gamma[1:15,1]
-    gamma_summer<-temp_gamma[16:30,1]
+    splitCoef<-unique(temp_gamma$sample_var_short)
+    gamma_list<-list()
+    for (n in 1:length(splitCoef)){
+      gamma_list[[n]]<-temp_gamma[temp_gamma$sample_var_short==splitCoef[n],"value"]
+      names(gamma_list)[[n]]<-paste0("gamma_",unique(temp_gamma[temp_gamma$sample_var_short==splitCoef[n],"sample_var_short"]))
+    }
     
-    #calulate autumn values
-    lps <- sweep( tau_aut, 2, temp_alphas, "+") 
-    #we don't have an offset
-    autumn_res[[i]] <- as.matrix(round(exp( lps),2))
+    #Identify Base Case -  the one that isn't in the gamma list
+    base<-results_levels[!results_levels %in% gsub("gamma", "res",names(gamma_list))]
+    notbase<-results_levels[results_levels %in% gsub("gamma", "res",names(gamma_list))]
     
-    #calculate spring values
-    lps_spring<-sweep( lps, 2, gamma_spring, "+") 
-    spring_res[[i]] <- as.matrix(round(exp( lps_spring),2))
+    #calulate base case values (the level of the model for which there is no offset)
+    lps <- sweep( tau_base, 2, temp_alphas, "+") #add alpha (sp mean prevalence) to base taus (difference from mean in each RCP) 
     
-    #calculate summer values
-    lps_summer<-sweep( lps, 2, gamma_summer, "+") 
-    summer_res[[i]] <- as.matrix(round(exp( lps_summer),2))
+    #Add base case prevalence to results list
+    invlogit<-function(x){exp(x)/(1+exp(x))}
+    
+    results[names(results)==base][[1]][[i]] <- as.matrix(round(invlogit( lps),2)) #make pretty. This is the species prevalence in each RCP in base. ###Changed this and the following from exp(lps) to exp(lps)/(1-exp(lps)) for the p/a dataset -- are all the alpha outputs on the logit scale? 
+    
+    
+    #calculate values for each sampling level
+    for (x in 1:length(notbase)){
+     #add each level's gamma (species dependence on level) to all base case prevalences 
+      dat<-gamma_list[names(gamma_list)==gsub("res","gamma",notbase[x])][[1]]
+      results[names(results)==notbase[x]][[1]][[i]] <- as.matrix(round(invlogit(sweep( lps, 2, gamma_list[names(gamma_list)==gsub("res","gamma",notbase[x])][[1]],"+")),2)) #make pretty. This is the species prevalence in each RCP in spring.
+     }
+    }
+  
+  #compile summaries of results, summarized across boot objects. These are mean & summary stats for species prevalences in each RCP in each level
+  results_summary<-rep( list(list()), length(results_levels) ) 
+  for (n in 1:length(results_levels)){
+    names(results_summary)[n]<-results_levels[n]
   }
   
+  for (n in 1:length(results_levels)){
+    results_summary[names(results_summary)==results_levels[n]][[1]]<-list(mean=apply(simplify2array(results[names(results)==results_levels[n]][[1]]), c(1,2), mean),
+                                                                          sd=apply(simplify2array(results[names(results)==results_levels[n]][[1]]), c(1,2), sd),
+                                                                          lower=apply(simplify2array(results[names(results)==results_levels[n]][[1]]), c(1,2), function(x) quantile(x, probs=0.025)),
+                                                                          upper=apply(simplify2array(results[names(results)==results_levels[n]][[1]]), c(1,2), function(x) quantile(x, probs=0.975)))
+  }
   
-  #compile summaries of results
-  autumn_summary<-list(mean=apply(simplify2array(autumn_res), c(1,2), mean),
-                       sd=apply(simplify2array(autumn_res), c(1,2), sd),
-                       lower=apply(simplify2array(autumn_res), c(1,2), function(x) quantile(x, probs=0.025)),
-                       upper=apply(simplify2array(autumn_res), c(1,2), function(x) quantile(x, probs=0.975)))
+  last_list<-list()
+  for (i in 1:length(results_levels)){
+    test<-data.frame(t(do.call("cbind.data.frame",results_summary[[i]])))
+    test$species<-gsub("^sd\\.|^lower\\.|^upper\\.|^mean\\.","",row.names(test)) 
+    test$stat<-substr(row.names(test),1,2) #should be an easier way I just can't remeber right now
+    test$stat<-ifelse(test$stat=="me","mean",ifelse(test$stat=="lo","lower",ifelse(test$stat=="up","upper",ifelse(test$stat=="sd","sd",""))))
+    test$sample_var<-gsub("res_","",names(results_summary)[i])
+    last_list[[i]]<-test
+  }
+  final<-do.call("rbind",last_list)  
   
-  spring_summary<-list(mean=apply(simplify2array(spring_res), c(1,2), mean),
-                       sd=apply(simplify2array(spring_res), c(1,2), sd),
-                       lower=apply(simplify2array(spring_res), c(1,2), function(x) quantile(x, probs=0.025)),
-                       upper=apply(simplify2array(spring_res), c(1,2), function(x) quantile(x, probs=0.975)))
+  final_melt<-reshape::melt(final, id.vars=c("species","sample_var","stat"))
+  names(final_melt)[4]<-"RCP"
+  final_melt$value<-round(final_melt$value,2)
+  final_cast<-reshape::cast(final_melt, species+RCP+sample_var~stat)
+  final_cast$RCP<-gsub("X","",final_cast$RCP)
   
-  summer_summary<-list(mean=apply(simplify2array(summer_res), c(1,2), mean),
-                       sd=apply(simplify2array(summer_res), c(1,2), sd),
-                       lower=apply(simplify2array(summer_res), c(1,2), function(x) quantile(x, probs=0.025)),
-                       upper=apply(simplify2array(summer_res), c(1,2), function(x) quantile(x, probs=0.975)))
-  return(list(autumn=autumn_summary,spring=spring_summary,summer=summer_summary))
+  return(final_cast)}
+
+#### 
+# Plot output of sp_abund_gen
+#sp_abund: output of sp_abund_gen
+
+sp_abund_plot<-function(sp_abund, legend_title){
+require(ggplot2)
+  sp_abund<-transform(sp_abund, species=reorder( species, mean))
+  ggplot(data=sp_abund, aes(x=species, y=mean, color=sample_var))+
+    facet_grid(sample_var ~ RCP)+
+                geom_point()+coord_flip()+
+   geom_linerange(aes(ymin=lower,ymax=upper))+
+    theme_bw()+theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+    scale_y_continuous(expand = c(0.0, 0))+xlab(c("Species"))+
+   labs(color=legend_title)
 }
-
-
-
 
 
 #### sampling_dotplot---
@@ -180,6 +238,8 @@ sampling_dotplot2<-function(best_mod,              # output of regimix function 
   gammas<-grepl("gamma",dimnames(boot_obj)[[2]])
   temp_dat<-boot_obj[,gammas]
   
+  colnames(temp_dat)<-gsub("^A_","A-",colnames(temp_dat)) #not super generalized
+  colnames(temp_dat)<-gsub("^I_","I-",colnames(temp_dat))
   temp<-data.frame(avs=as.numeric(unname(colMeans(temp_dat))),
                    t(apply(temp_dat, 2, quantile, probs=CI)),
                    #sampling_var=rep(sampling_names, each=length(length(best_mod$names$spp))),
@@ -189,6 +249,7 @@ sampling_dotplot2<-function(best_mod,              # output of regimix function 
   
   names(temp)[2:3]<-c("lower", "upper")
   temp$Species<-gsub("."," ", temp$Species, fixed=TRUE) #get rid of '.' in species names
+  
   temp$Species<-as.factor(temp$Species) #convert back to factor
   temp$Species <- factor(temp$Species, levels=rev(levels(temp$Species))) 
   
