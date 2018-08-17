@@ -9,9 +9,18 @@
 ######################################################################################################################
 
 # TO DO:
-# Add code to export spatial predictions as a raster layer
-# Add code to build species profiles of each RCP (probability of species being a member of an RCP)
+# Add code to export spatial predictions as a raster layer (KG: rasterize function as Hill wrote fails. I was able to output it as a spatialpointsdataframe, which you can view in R.)
+# Add code to build species profiles of each RCP (probability of species being a member of an RCP) (KG: Done, assuming you can interpret the mean "prevalence" (alpha) of the each species as its probability)
 # Write documentation for this code
+
+#### Outstanding questions
+##########################
+# Should we need to set up variable selection for the model? In the paper they do forward variable selection wrapped with selection of the number of RCPs. I've started a script to do this, and Jess suggested running it in parallel to reduce run time. Still need to be thoughtful about iterations. 18 enviro vars (9 x 2 polynomials) is 262143 models. Not doing the polynomials is only 511. 
+# Do we actually need to calculate orthogonal polynomials? Hill says it's to "avoid convergence problems". Not sure what that means.  
+# I don't think the model outputs tells us "the most important environmental variables for distinguishing clusters". Doing a BIC comparison for models with/without each variable might give this. 
+# What is actually being bootstrapped in regiboot? Is it model inputs bootstrapped and run through the single model, or inputs bootstrapped to get a new model? 
+# I don't think the results tell us "effect of Survey". So we could add this to the model selection/BIC list to see how much of an impact including Survey has on the model BIC?
+
 
 # start fresh
 rm(list=ls())
@@ -35,6 +44,14 @@ source("../Scripts/RCP_Helper_Functions.R")
 # Make packages available
 UsePackages( pkgs=c("dplyr","RCPmod", "raster", "rasterVis", "tidyr","corrplot") ) 
 
+# Directories  
+# ===========
+# Subfolder for output 
+outdir <- file.path("../Models", Sys.Date() )  # Set this to Models/Tday's Date/...
+suppressWarnings( dir.create( outdir, recursive = TRUE ) )
+
+setwd(outdir)
+
 # Controls
 # ========
 # REQUIRED
@@ -52,12 +69,6 @@ subset.data <- T # Specify T/F to subset data or use all communities
 subset.size <- 200 # Specifcy random subset size --- originally set to 1000
 
 
-# Directories  
-# ===========
-# Subfolder for output 
-outdir <- file.path("../Models", Sys.Date() )  # Set this to Models/Tday's Date/...
-suppressWarnings( dir.create( outdir, recursive = TRUE ) )
-
 # Load the data
 # =============
 # Fish example code has species and covariates in the same csv file
@@ -65,14 +76,15 @@ spEnv<- read.csv("../Data/SpeciesMatrix_withEnviro/SpeciesByDepthSpatialEnviroRe
 spEnv<-spEnv[spEnv$area=="NCC",] #confirm NCC only
 covariates.species <- spEnv[!names(spEnv)%in% c( "TransDepth","fcode","BoP1","BoP2","area","surv","coords.x1","coords.x2","optional")]
 
+# Load some outputs of 3.create environmental space
+rcp_data <- readRDS("rcp_data.rds") #data.frame of species data with polynomial-transformed environmental variables
+rasSub<- readRDS("rasSub.rds")      #raster stack of predictor variables
+
 siteNo <- covariates.species[,id_vars] 
 species <- names(covariates.species)[2:160] #159 species
 enviro.variables<-names(covariates.species)[162:170] #9 enviro
 
 n.sites <- nrow(covariates.species) # Number of sites in study area
-#n.abund <- 2 # Define where species data starts in covariates.species, test with names(covariates.species)[n.abund] ??
-
-rcp_data <- readRDS(paste0(outdir, "/rcp_data.rds"))
 
 # Conditional processing to subset sites used - ensure sitename column is correctly specified in controls
 if (subset.data) {
@@ -105,11 +117,12 @@ length(species) #38 species
 length(enviro.variables) #9 enviro
 length(site.names) #200
 
+saveRDS(rcp_data, "rcp_data_subsetted.rds")
+
+
 ## In paper they use forward selection to select variables. Do we need to do that???
 
-
-#filename <- paste( "..", outdir, "Enviro.Layers.pdf", sep = "/" )
-# pdf( file=filename, width = 6, height = 4 )
+# pdf( file=paste0( outdir, "/Enviro.Layers.pdf"), width = 6, height = 4 )
 #   plot(ras)
 # dev.off()
 
@@ -120,7 +133,7 @@ form <- as.formula(paste("cbind(",paste(species, collapse=", "),")~",c(paste(c(p
 
 # Run RCPs --- WITH sampling effect
 # =================================
-# Season/Year as sampling effect ---- CHANGE to survey (month/year) for BHM data
+# Using "Survey" as sampling effect (defined above)
 # This bit  will take a while on a single core machine
 nRCPs_samp <- list() 
 
@@ -137,9 +150,8 @@ nRCPs_samp[[5]] <- regimix.multifit(form.RCP=form, form.spp= paste0("~ ", sample
 nRCPs_samp[[6]] <- regimix.multifit(form.RCP=form, form.spp= paste0("~ ", sample_vars), data=rcp_data, nRCP=6,inits=gen.start.val, nstart=nstarts, dist=distribution, mc.cores=1)
 nRCPs_samp[[7]] <- regimix.multifit(form.RCP=form, form.spp= paste0("~ ", sample_vars), data=rcp_data, nRCP=7,inits=gen.start.val, nstart=nstarts, dist=distribution, mc.cores=1)
 
-
-saveRDS(nRCPs_samp, file=paste0(outdir,"/nRCPs_samp.rds"))
-nRCPs_samp <- readRDS(paste0(outdir,"/nRCPs_samp.rds"))
+saveRDS(nRCPs_samp, file="nRCPs_samp.rds")
+nRCPs_samp <- readRDS("nRCPs_samp.rds")
 
 # Determine best model
 # ====================
@@ -158,7 +170,7 @@ RCPsamp_BICs[RCPsamp_ObviouslyBad] <- NA
 # Plot minimum BIC for each nRCP
 RCPsamp_minBICs <- apply(RCPsamp_BICs, 2, min, na.rm=TRUE)
 
-pdf( file= paste0(outdir, "/nRCPs_Samp.pdf"), width = 4, height = 4 )
+pdf( file= "nRCPs_Samp.pdf", width = 4, height = 4 )
 plot( names(nRCPs_samp), RCPsamp_minBICs, type='b', ylab="BIC", xlab="nRCP", pch=20)
 points( rep(names(nRCPs_samp), each=nrow( RCPsamp_BICs)), RCPsamp_BICs, pch=20)
 dev.off()
@@ -169,7 +181,7 @@ minBICs$RCP <- as.numeric( row.names(minBICs) ) # Create column for number of RC
 nRCP_best <- minBICs$RCP[which.min(minBICs$RCPsamp_minBICs)]
 
 # set variables to match the number of RCPs with the lowest BIC 
-#inits_best <- unlist( nRCPs_samp[[nRCP_best]][[3]]$coef) #didn't use this - ??. using this causes model to fail from here on. Flag
+#inits_best <- unlist( nRCPs_samp[[nRCP_best]][[3]]$coef) #FLAG - using these defined coefficients causes the model to fail running. Changed inits to "random2" instead but might need to be fixed.
 
 # Rerun best model (for full output)
 # ==================================
@@ -177,8 +189,8 @@ control <- list( optimise=FALSE, quiet=FALSE)
 RCPsamp_fin <- regimix(form.RCP=form, form.spp=paste0("~ ", sample_vars), 
                        data=rcp_data, dist=distribution, nRCP=nRCP_best, inits = "random2", control=control)
 
-saveRDS(RCPsamp_fin, file=paste0(outdir,"/nRCPsamp_fin.rds"))
-RCPsamp_fin <- readRDS(paste0(outdir,"/nRCPsamp_fin.rds"))
+saveRDS(RCPsamp_fin, file="nRCPsamp_fin.rds")
+RCPsamp_fin <- readRDS("nRCPsamp_fin.rds")
 
 # Clean-up workspace
 #rm(RCPsamp_BICs,RCPsamp_minPosteriorSites, RCPsamp_ObviouslyBad, RCPsamp_minBICs, control, minBICs)
@@ -187,7 +199,7 @@ RCPsamp_fin <- readRDS(paste0(outdir,"/nRCPsamp_fin.rds"))
 # ======================
 # To do:  Add code to save figures to pdf files
 # Residual plots
-pdf( file=paste0(outdir, "/Residuals_Samp.pdf"), width = 6, height = 4 )
+pdf( file=paste0("Residuals_Samp.pdf"), width = 6, height = 4 )
 plot.regimix(RCPsamp_fin, type="RQR", fitted.scale="log")
 dev.off()
 
@@ -198,18 +210,17 @@ dev.off()
 tmp <- stability.regimix(RCPsamp_fin, oosSizeRange=c(1,2,5,10,20), mc.cores=1, times=3, doPlot=FALSE) # quick run (3 runs instead of 200)
 
 #tmp <- stability.regimix(RCPsamp_fin, oosSizeRange=c(1,2,5,10,20), mc.cores=1, times=RCPsamp_fin$n, doPlot=FALSE) # simplified, but missing horizontal line
-saveRDS( tmp, file=paste0(outdir,"/Fish.Cooks.Dist.rds" ))
+saveRDS( tmp, file="Fish.Cooks.Dist.rds" )
 
 #tmp <- readRDS("Fish.Cooks.Dist.rds")
-pdf( file=paste0(outdir, "/Cooks.Distance.Samp.pdf"), width = 6, height = 4 )
+pdf( file="Cooks.Distance.Samp.pdf", width = 6, height = 4 )
 plot( tmp, minWidth=2, ncuts=111 ) 
 dev.off()
 
 # Examine dispersion parameter for negative Binomial  --- would this change with a Bernoulli distribution?
-# #No "disp" parameter in bernoulli output
+# FLAG: doesn't work because there's no "disp" parameter in bernoulli output
 # par( mfrow=c(1,1) )
-# filename <- paste( "..", outdir, "Dispersion.Parameter.pdf", sep = "/" )
-# pdf( file=filename, width = 4, height = 4)
+# pdf( file="Dispersion.Parameter.pdf", width = 4, height = 4)
 # hist(RCPsamp_fin$coefs$disp, xlab="Dispersion Parameter", 
 #      main="Negative Binomial Model", col="grey", cex.main=0.8, cex=0.8, cex.lab=0.8 )
 # dev.off()
@@ -219,50 +230,85 @@ dev.off()
 # Warning --- bootstrap is slooow
 # rcpsamp_boots<-regiboot(RCPsamp_fin, type="BayesBoot", nboot=1000, mc.cores=1) # original code
 rcpsamp_boots<-regiboot(RCPsamp_fin, type="BayesBoot", nboot=10, mc.cores=1) # simplified
-saveRDS( rcpsamp_boots, file=paste0(outdir,"/RCPSamp_boots.rds" ))
-#rcpsamp_boots <- readRDS(paste0(outdir,"/RCPSamp_boots.rds"))
+saveRDS( rcpsamp_boots, file="RCPSamp_boots.rds" )
+rcpsamp_boots <- readRDS("RCPSamp_boots.rds")
 
 
 # Evaluate sampling factor effect
 # ===============================
-# Calculate average, SD and CI of species abundances in each  RCP
+# Calculate average, SD and CI of species abundances in each RCP
 # Sp_abund_gen(bootstrap object, input species file with levels)
 RCP_abund_samp<-Sp_abund_gen(rcpsamp_boots, covariates.species)
 
 #Plot results
-png(paste0(outdir,"/RCP_abund_sp.png"), height=20, width=20, res=300, units="cm", pointsize = 12)
+png("RCP_abund_sp.png", height=20, width=20, res=300, units="cm", pointsize = 12)
 sp_abund_plot(RCP_abund_samp,"Survey")
 dev.off()
 
 # ??sampling_dotplot2()
 # Plot of sampling factor effects (relative to base case)
-pdf( file=paste0(outdir, "/Sampling.Factor.Effects.pdf"), width = 8, height = 8)
+# Flag - could be generalized to make sure the factor levels are right. Not sure here because the "base case" isn't listed. 
+pdf( file="Sampling.Factor.Effects.pdf", width = 8, height = 8)
 sampling_dotplot2(RCPsamp_fin,rcpsamp_boots,legend_fact=c("PAC 2014-29", "PAC 2014-58","PAC 2015-52"), col=c("black", "red", "blue"), lty=c(1,2,3))
 dev.off()
+
+
+#What do the beta values coming out of regiboot object tells us? "RCPs dependence on covariates". Is looking at them useful? 
 
 
 # Spatial Predictions
 # ===================
 
 #Load environmental space
-#rcp_poly_pred<-readRDS(paste0(outdir,"/rcp_poly_pred.rds"))
-rcp_poly_pred_lev<-readRDS(paste0(outdir,"/rcp_poly_pred_level_P1458.rds"))
-rcpsamp_boots<-readRDS(paste0(outdir,"/rcpsamp_boots.rds"))
-nRCPsamp_fin<-readRDS(paste0(outdir,"/nRCPsamp_fin.rds"))
+#rcp_poly_pred<-readRDS(paste0(outdir,"/rcp_poly_pred.rds")
+rcp_poly_pred_lev<-readRDS("rcp_poly_pred_level_P1362.rds")
+rcpsamp_boots<-readRDS("rcpsamp_boots.rds")
+nRCPsamp_fin<-readRDS("nRCPsamp_fin.rds")
+pred_space_rcp<-readRDS("pred_space_rcp.rds")
 
-
+#This command maxes out my ram, but works on GIS computer. Looks like Fig 4 in hill paper. 
+#This is a probability of prediction for every raster cell in the rasSub stack. 
+#Predict.regimix takes "newdata" of env+sp variables and calcualates probability of RCP membership. 
+#it does this for the single model output (object) and the boot output (object2)
 RCPsamp_SpPreds<-predict.regimix(object=nRCPsamp_fin, object2=rcpsamp_boots, newdata=rcp_poly_pred_lev)
 
+RCPsamp_SpPreds<-readRDS("RCPsamp_SpPreds.rds")
+
+df<-SpatialPointsDataFrame(coords= pred_space_rcp[,1:2], data=as.data.frame(RCPsamp_SpPreds$bootPreds))
+rgdal::writeOGR(df, "/spatial", layer="bootPreds", driver="ESRI Shapefile")
+
+dbf<-foreign::read.dbf("spatial/bootPreds.dbf")
+dbf$probOfAssign<-apply(dbf, 1, FUN=max)
+dbf$topRCP<-apply(dbf,1,function(x) match(max(x),x)) 
+foreign::write.dbf(dbf,"spatial/bootPreds.dbf")
 
 # ??predict_maps2_SDF2()
 # Plot RCP predictions
-filename <- paste( ".", outdir, "Spatial.Preds.Samp.pdf", sep = "/" )
-pdf( file=filename, width = 6, height = 4 )
-predict_maps2_SDF2(RCPsamp_SpPreds, pred_space=pred_space_rcp, pred_crop=pred_masked, nRCP=nRCP_best)
+nRCP_best=3
+
+pdf( file=paste0("Spatial.Preds.Samp.pdf" ), width = 6, height = 4 )
+predict_maps2_SDF2(RCPsamp_SpPreds, pred_space=pred_space_rcp, pred_crop=rasSub, nRCP=nRCP_best)
 dev.off()
 
-# Clean-up variables...
-rm(nRCP_best)
+## giving predict.regimix the input sampling sites (here, rcp_data) gives probability of RCP membership for each site. 
+rcp_data<-readRDS("rcp_data.rds")
+RCPsamp_SpPreds_intialSites<-predict.regimix(object=nRCPsamp_fin, object2=rcpsamp_boots, newdata=rcp_data)
+
+#the outputs are both point predictions (from model?) and bootstrap predictions
+#take the point predictions and plot them - it looks like Figure 3 in Hill paper
+pt_preds<-as.data.frame(RCPsamp_SpPreds_intialSites[[1]])
+rcp_data_melt<-melt(covariates.species[,!names(covariates.species)%in% species], id.vars=c("SourceKey","Survey"))
+summary(rcp_data_melt$SourceKey==rcp_data$SourceKey) #order of points is the same. attach the spatial predictions
+rcp_data_wPred<-cbind.data.frame(rcp_data_melt, pt_preds)
+rcp_data_wPred_melt<-melt(rcp_data_wPred, id.vars=c("SourceKey","Survey", "variable","value"))
+names(rcp_data_wPred_melt)[3:6]<-c("enviro","enviro_val","RCP","RCP_prob")
+
+#Plot - matches Figure 3 in the paper. 
+png("envirospace.png",res=400, width=50, height=20, units="cm")
+ggplot(data=rcp_data_wPred_melt, aes(x=enviro_val, y=RCP_prob, col=RCP))+geom_point(alpha=0.2)+facet_grid(RCP~enviro, scales="free_x")+theme_bw()
+dev.off()
+
+
 
 #================================================================================================
 #################################################################################################
@@ -373,8 +419,7 @@ RCPNoSamp_SpPreds <- predict.regimix( object=RCPNoSamp_fin, object2=rcpNoSamp_bo
 # my.xlim=NULL,    #x limit to plot
 # my.asp=1)        #aspect for plotting
 
-filename <- paste( ".", outdir, "Spatial.Preds.NoSamp.pdf", sep = "/" )
-pdf( file=filename, width = 4, height = 4 )
-predict_maps2_SDF2( RCPNoSamp_SpPreds, pred_space=pred_space_rcp, pred_crop=pred_masked, nRCP=nRCP_best )
+pdf( file=paste0( outdir, "/Spatial.Preds.NoSamp.pdf" ), width = 4, height = 4 )
+predict_maps2_SDF2( RCPNoSamp_SpPreds, pred_space=pred_space_rcp, pred_crop=ras, nRCP=nRCP_best )
 dev.off()
 
