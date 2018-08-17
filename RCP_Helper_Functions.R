@@ -107,7 +107,7 @@ Sp_abund_gen<-function(boot_obj, covariates.species) {
   taus<-grepl("tau",dimnames(boot_obj)[[2]]) #for each species, difference from the mean (alpha) to mean for each RCP, for the first n-1 RCPs. 
   #The last RCP means (tau) are calculated by the "sum to zero" constraint (negative sum of taus for the other RCPs, so sum(tau)=0 for each species )
   alphas<-grepl("alpha",dimnames(boot_obj)[[2]]) #mean species prevalence overall in the dataset, on the logit scale
-  gammas<-grepl("gamma",dimnames(boot_obj)[[2]]) #Specifies the RCPs dependence on the covariates
+  gammas<-grepl("gamma",dimnames(boot_obj)[[2]]) #Specifies the species dependence on the covariates
   
   results<-rep( list(list()), length(results_levels) ) 
   for (n in 1:length(results_levels)){
