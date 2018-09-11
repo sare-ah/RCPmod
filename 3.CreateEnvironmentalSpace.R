@@ -12,23 +12,23 @@
 # Set working directory - move back to parent directory
 setwd('..')
 
-outdir <- file.path("../Models", Sys.Date() )  # Set this to Models/Tday's Date/...
+outdir <- file.path("./Models", Sys.Date() )  # Set this to Models/Tday's Date/...
 suppressWarnings( dir.create( "../",outdir, recursive = TRUE ) )
 
 # Load helper functions
 # =====================
 # contains additional functions for installing packages, data transformations, plotting etc.
-source("../Scripts/RCP_Helper_Functions.R")
+source("Scripts/RCP_Helper_Functions.R")
 
 # Make packages available
 UsePackages( pkgs=c("dplyr","RCPmod", "raster", "rasterVis", "tidyr","corrplot") ) 
 
 # Load species data to get only the environmental variables of interest 
-spEnv<- read.csv("../Data/SpeciesMatrix_withEnviro/SpeciesByDepthSpatialEnviroRemCor.csv", header=T, stringsAsFactors=F)
+spEnv<- read.csv("./Data/SpeciesMatrix_withEnviro/SpeciesByDepthSpatialEnviroRemCor.csv", header=T, stringsAsFactors=F)
 spEnv<-spEnv[spEnv$area=="NCC",] #confirm NCC only
 covariates.species <- spEnv[!names(spEnv)%in% c( "TransDepth","fcode","BoP1","BoP2","area","surv","coords.x1","coords.x2","optional")]
 species <- names(covariates.species)[2:160] #159 species
-enviro.variables<-names(covariates.species)[162:170] #9 enviro
+enviro.variables<-names(covariates.species)[162:ncol(covariates.species)] #11 enviro
 
 id_vars="SourceKey" # Unique identifier for each record
 sample_vars="Survey" # Field or fields that describe potential sampling effects
@@ -43,16 +43,16 @@ setwd('..')
 # Convert rasters to dataframe and log transform depth
 pred_space_rcp <- as.data.frame(rasterToPoints(rasSub))
 pred_space_rcp <- na.omit( pred_space_rcp )
-saveRDS(pred_space_rcp, file=paste0( outdir, "/pred_space_rcp.rds"))
+saveRDS(pred_space_rcp, file=paste0(outdir, "/pred_space_rcp.rds"))
 pred_space_rcp<-readRDS(paste0(outdir, "/pred_space_rcp.rds"))
 
-# Generate datafile with orthogonal polynomial terms
+# Generate datafile with orthogonal polynomial terms (not run 22 Aug)
 
 # ??poly_data() --- creates a list of two objects
 # 1. Generate orthogonal polynomials for RCPmod input
 # 2. Save polynomial bases to transform prediction space
 # poly_data(predictor vars, poly degrees, vars not transformed, sampling level, species, data)
-rcp_poly <- poly_data(poly_vars=enviro.variables, degree=c(rep(2, length(enviro.variables))), 
+rcp_poly <- poly_data(poly_vars=enviro.variables, degree=c(rep(1, length(enviro.variables))), 
                       id_vars=id_vars,sample_vars=sample_vars, 
                       species_vars=species, data=covariates.species)
 
