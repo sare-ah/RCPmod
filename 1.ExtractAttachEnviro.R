@@ -16,7 +16,7 @@ library(raster)
 ################################
 setwd("D:/Documents/!GIS Files/EnvironmentalRasters/Nearshore/Rasters/")
 rasfiles<-list.files(getwd(), pattern = "(*.)tif$",recursive=T)
-ras<-stack(rasfiles[c(1:3, 5:26)])
+ras<-stack(rasfiles[c(1:3, 5:30)]) #Skip Btype
 
 ##################################################
 # Bring in spatialized points with species data 
