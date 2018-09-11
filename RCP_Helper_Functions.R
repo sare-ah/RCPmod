@@ -97,6 +97,7 @@ poly_pred_space<-function(pred_space,             #dataframe containing variable
 Sp_abund_gen<-function(boot_obj, covariates.species) {
   
   require(tidyr)
+  invlogit<-function(x){exp(x)/(1+exp(x))}
   
   levels<-data.frame(sample_var=unique(covariates.species[,sample_vars]))
   levels$sample_var_short<-tolower(gsub("[[:punct:]]|\\s","",levels$sample_var)) #drop all special characters or spaces from level name. 
@@ -110,6 +111,7 @@ Sp_abund_gen<-function(boot_obj, covariates.species) {
   gammas<-grepl("gamma",dimnames(boot_obj)[[2]]) #Specifies the species dependence on the covariates
   
   results<-rep( list(list()), length(results_levels) ) 
+  
   for (n in 1:length(results_levels)){
     names(results)[n]<-results_levels[n]
   }
@@ -133,6 +135,7 @@ Sp_abund_gen<-function(boot_obj, covariates.species) {
     temp_alphas<-boot_obj[i,alphas]
     names(temp_alphas)<-gsub("^A_","A-",names(temp_alphas)) #not super generalized
     names(temp_alphas)<-gsub("^I_","I-",names(temp_alphas))
+    
     
     #gamma. Species dependence on covariates.
     temp_gamma<-data.frame(value=boot_obj[i,gammas])
@@ -159,7 +162,7 @@ Sp_abund_gen<-function(boot_obj, covariates.species) {
     lps <- sweep( tau_base, 2, temp_alphas, "+") #add alpha (sp mean prevalence) to base taus (difference from mean in each RCP) 
     
     #Add base case prevalence to results list
-    invlogit<-function(x){exp(x)/(1+exp(x))}
+    
     
     results[names(results)==base][[1]][[i]] <- as.matrix(round(invlogit( lps),2)) #make pretty. This is the species prevalence in each RCP in base. ###Changed this and the following from exp(lps) to exp(lps)/(1-exp(lps)) for the p/a dataset -- are all the alpha outputs on the logit scale? 
     
@@ -205,21 +208,75 @@ Sp_abund_gen<-function(boot_obj, covariates.species) {
   return(final_cast)}
 
 #### 
-# Plot output of sp_abund_gen
-#sp_abund: output of sp_abund_gen
+# Plot output of sp_abund_gen to get predicted prevalence of each species in each RCP. 
+# Option bySampleEffect specifies whether results are broken down by Sampling Effect (E.g., survey)
+# If bySampleEffect=T, mean(Prevalence) from bootstrap are averaged across Sample Effect Levels (mean + CIs of bootstrap mean shown)
+# if bySampleEffect=F, mean(Prevalence) are used straight from bootstrap
+# sortByRCP = TRUE will sort by a specified RCP, or by the first one if refRCP is blank
+# sp_abund: output of sp_abund_gen
 
-sp_abund_plot<-function(sp_abund, legend_title){
+sp_abund_plot<-function(sp_abund, bySampleEffect, sampleEffectName, sortByRCP, refRCP=NULL){
 require(ggplot2)
-  sp_abund<-transform(sp_abund, species=reorder( species, mean))
-  ggplot(data=sp_abund, aes(x=species, y=mean, color=sample_var))+
-    facet_grid(sample_var ~ RCP)+
-                geom_point()+coord_flip()+
+  require(plyr)
+  if(bySampleEffect==F){
+    sp_abund<-ddply(sp_abund, c("species", "RCP"), summarize,meanv=mean(mean), lowerv=quantile(mean, probs=0.025),upperv=quantile(mean, probs=0.975))
+      
+    if (sortByRCP==T){
+        if (is.null(refRCP)==T){  
+          forOrder<-sp_abund[sp_abund$RCP==sp_abund$RCP[1],]
+              } else {
+          forOrder<-sp_abund[sp_abund$RCP==sp_abund$RCP[refRCP],]  
+                        }
+      forOrder$species<-factor(forOrder$species, levels = forOrder$species[order(-forOrder$meanv)])
+      sp_abund$species <- factor(sp_abund$species, levels = levels(forOrder$species))
+          } else {}
+        
+    ggplot(data=sp_abund, aes(x=species, y=meanv, color=RCP))+
+      facet_grid(. ~ RCP)+geom_point()+coord_flip()+
+      geom_linerange(aes(ymin=lowerv,ymax=upperv))+
+      theme_bw()+theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+scale_x_discrete(limits=rev(levels(factor(sp_abund$species))))+
+      scale_y_continuous(expand = c(0.0, 0))+xlab(c("Species"))+ylab(c("Mean Prevalence"))+
+      theme(legend.position="none")
+    
+  }else {
+    
+    if (sortByRCP==T){
+      if (is.null(refRCP)==T){  
+        forOrder<-sp_abund[sp_abund$RCP==sp_abund$RCP[1]&sp_abund$sample_var==sp_abund$sample_var[1],]
+      } else {
+        forOrder<-sp_abund[sp_abund$RCP==sp_abund$RCP[refRCP]&sp_abund$sample_var==sp_abund$sample_var[1],]  
+      }
+      forOrder$species<-factor(forOrder$species, levels = forOrder$species[order(-forOrder$mean)])
+      sp_abund$species <- factor(sp_abund$species, levels = levels(forOrder$species))
+    } else {}
+  
+    ggplot(data=sp_abund, aes(x=species, y=mean, color=sample_var))+
+    facet_grid(sample_var ~ RCP)+geom_point()+coord_flip()+
    geom_linerange(aes(ymin=lower,ymax=upper))+
-    theme_bw()+theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
-    scale_y_continuous(expand = c(0.0, 0))+xlab(c("Species"))+
-   labs(color=legend_title)
+    theme_bw()+theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+scale_x_discrete(limits=rev(levels(factor(sp_abund$species))))+
+    scale_y_continuous(expand = c(0.0, 0))+xlab(c("Species"))+ylab(c("Mean Prevalence"))+
+   labs(color=sampleEffectName)
+  }
 }
 
+## Indicator Species
+
+# require(labdsv)
+# require(reshape2)
+# 
+# 
+# 
+# sp_abund1<-data.frame(sp_abund[,c("species","mean","RCP")])
+# sp_melt<- melt(sp_abund1, id.vars=c("species","RCP"), measure.vars=c("mean")) 
+# sp_cast<-cast(sp_melt, RCP~species, fun="mean")
+# 
+# ind<-indval(sp_cast[2:ncol(sp_cast)], sp_cast$RCP)
+# 
+# indvals<-melt(data.frame(species=row.names(ind$indval),ind$indval))
+# abund<-melt(data.frame(species=row.names(ind$relabu),ind$relabu))
+# maxcl<-melt(data.frame(species=names(ind$maxcls),ind$maxcls))
+# 
+# data.frame
 
 #### sampling_dotplot---
 # Produce dotplot of sampling-level coefficients (and 95% CI) for each species
@@ -279,6 +336,9 @@ sampling_dotplot2<-function(best_mod,              # output of regimix function 
 #####predict_maps2_SDF2----
 # Plot RCP predictions
 # S. Foster version, modified for vertical instead of horizontal RCP layout
+
+
+
 
 predict_maps2_SDF2 <- function(predictions,     #output from predict.regimix
                                pred_space,      #dataframe containing coordinates for the prediction space

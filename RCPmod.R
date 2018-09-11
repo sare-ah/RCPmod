@@ -39,7 +39,7 @@ setwd('..')
 # Load helper functions
 # =====================
 # contains additional functions for installing packages, data transformations, plotting etc.
-source("../Scripts/RCP_Helper_Functions.R")
+source("./Scripts/RCP_Helper_Functions.R")
 
 # Make packages available
 UsePackages( pkgs=c("dplyr","RCPmod", "raster", "rasterVis", "tidyr","corrplot") ) 
@@ -48,10 +48,11 @@ UsePackages( pkgs=c("dplyr","RCPmod", "raster", "rasterVis", "tidyr","corrplot")
 # ===========
 # Subfolder for output 
 outdir <- file.path("../Models", Sys.Date() )  # Set this to Models/Tday's Date/...
+outdir <- file.path("../Models/2018-08-13/" )
 suppressWarnings( dir.create( outdir, recursive = TRUE ) )
 
-setwd(outdir)
-
+setwd("D:/Documents/Projects/WorldClass_DiveSurveys/RCP/Models/2018-08-22/")
+      
 # Controls
 # ========
 # REQUIRED
@@ -72,17 +73,18 @@ subset.size <- 200 # Specifcy random subset size --- originally set to 1000
 # Load the data
 # =============
 # Fish example code has species and covariates in the same csv file
-spEnv<- read.csv("../Data/SpeciesMatrix_withEnviro/SpeciesByDepthSpatialEnviroRemCor.csv", header=T, stringsAsFactors=F)
+spEnv<- read.csv("../../Data/SpeciesMatrix_withEnviro/SpeciesByDepthSpatialEnviroRemCor.csv", header=T, stringsAsFactors=F)
 spEnv<-spEnv[spEnv$area=="NCC",] #confirm NCC only
 covariates.species <- spEnv[!names(spEnv)%in% c( "TransDepth","fcode","BoP1","BoP2","area","surv","coords.x1","coords.x2","optional")]
 
+rcp_data<-covariates.species
 # Load some outputs of 3.create environmental space
-rcp_data <- readRDS("rcp_data.rds") #data.frame of species data with polynomial-transformed environmental variables
-rasSub<- readRDS("rasSub.rds")      #raster stack of predictor variables
+#rcp_data <- readRDS("D:/Documents/Projects/WorldClass_DiveSurveys/RCP/Models/2018-08-13/rcp_data.rds") #data.frame of species data with polynomial-transformed environmental variables
+#rasSub<- readRDS("rasSub.rds")      #raster stack of predictor variables
 
 siteNo <- covariates.species[,id_vars] 
 species <- names(covariates.species)[2:160] #159 species
-enviro.variables<-names(covariates.species)[162:170] #9 enviro
+enviro.variables<-names(covariates.species)[162:ncol(covariates.species)] #11 enviro
 
 n.sites <- nrow(covariates.species) # Number of sites in study area
 
@@ -114,11 +116,11 @@ if (min.prevalence) {
 }
 
 length(species) #38 species
-length(enviro.variables) #9 enviro
+length(enviro.variables) #11 enviro
 length(site.names) #200
 
 saveRDS(rcp_data, "rcp_data_subsetted.rds")
-
+rcp_data_subsetted<-readRDS("rcp_data_subsetted.rds")
 
 ## In paper they use forward selection to select variables. Do we need to do that???
 
@@ -144,7 +146,7 @@ nRCPs_samp <- list()
 # Populate list manually
 #nRCPs_samp[[1]] <- regimix.multifit(form.RCP=form, form.spp= ~ sample_vars, data=rcp_data, nRCP=1,inits=gen.start.val, nstart=nstarts, dist=distribution, mc.cores=1)
 #nRCPs_samp[[2]] <- regimix.multifit(form.RCP=form, form.spp= ~ sample_vars, data=rcp_data, nRCP=2,inits=gen.start.val, nstart=nstarts, dist=distribution, mc.cores=1) # throws an error!
-nRCPs_samp[[3]] <- regimix.multifit(form.RCP=form, form.spp= paste0("~ ", sample_vars), data=rcp_data, nRCP=3,inits=gen.start.val, nstart=nstarts, dist=distribution, mc.cores=1)
+nRCPs_samp[[3]] <- regimix.multifit(form.RCP=form, form.spp= paste0("~ ", sample_vars), data=rcp_data_subsetted, nRCP=3,inits=gen.start.val, nstart=nstarts, dist=distribution, mc.cores=1)
 nRCPs_samp[[4]] <- regimix.multifit(form.RCP=form, form.spp= paste0("~ ", sample_vars), data=rcp_data, nRCP=4,inits=gen.start.val, nstart=nstarts, dist=distribution, mc.cores=1)
 nRCPs_samp[[5]] <- regimix.multifit(form.RCP=form, form.spp= paste0("~ ", sample_vars), data=rcp_data, nRCP=5,inits=gen.start.val, nstart=nstarts, dist=distribution, mc.cores=1)
 nRCPs_samp[[6]] <- regimix.multifit(form.RCP=form, form.spp= paste0("~ ", sample_vars), data=rcp_data, nRCP=6,inits=gen.start.val, nstart=nstarts, dist=distribution, mc.cores=1)
@@ -240,10 +242,21 @@ rcpsamp_boots <- readRDS("RCPSamp_boots.rds")
 # Sp_abund_gen(bootstrap object, input species file with levels)
 RCP_abund_samp<-Sp_abund_gen(rcpsamp_boots, covariates.species)
 
+
 #Plot results
-png("RCP_abund_sp.png", height=20, width=20, res=300, units="cm", pointsize = 12)
-sp_abund_plot(RCP_abund_samp,"Survey")
+#sp_abund_plot(sp_abund, bySampleEffect, sampleEffectName, sortByRCP, refRCP=NULL)
+png("RCP_abund_sp_surv.png", height=20, width=20, res=300, units="cm", pointsize = 12)
+sp_abund_plot(RCP_abund_samp,bySampleEffect=TRUE,"Survey", sortByRCP = F)
 dev.off()
+
+png("RCP_abund_sp_nosurv.png", height=12, width=20, res=300, units="cm", pointsize = 12)
+sp_abund_plot(RCP_abund_samp,bySampleEffect=FALSE, sortByRCP = T)
+dev.off()
+
+## Get "indicator species" for each RCP (needs to be from predict to get variation)
+
+
+
 
 # ??sampling_dotplot2()
 # Plot of sampling factor effects (relative to base case)
@@ -266,6 +279,12 @@ rcpsamp_boots<-readRDS("rcpsamp_boots.rds")
 nRCPsamp_fin<-readRDS("nRCPsamp_fin.rds")
 pred_space_rcp<-readRDS("pred_space_rcp.rds")
 
+RCPsamp_SpPreds<-RCPsamp_SpPreds
+ras1<-raster("D:/Documents/!GIS Files/EnvironmentalRasters/Nearshore/Rasters/ArcRug.tif")
+
+av_pred<-rasterize(SpatialPointsDataFrame(coords= pred_space_rcp[,1:2], data=as.data.frame(RCPsamp_SpPreds$bootPreds)), ras1)
+av_pred <- dropLayer( av_pred, 1)
+
 #This command maxes out my ram, but works on GIS computer. Looks like Fig 4 in hill paper. 
 #This is a probability of prediction for every raster cell in the rasSub stack. 
 #Predict.regimix takes "newdata" of env+sp variables and calcualates probability of RCP membership. 
@@ -281,6 +300,8 @@ dbf<-foreign::read.dbf("spatial/bootPreds.dbf")
 dbf$probOfAssign<-apply(dbf, 1, FUN=max)
 dbf$topRCP<-apply(dbf,1,function(x) match(max(x),x)) 
 foreign::write.dbf(dbf,"spatial/bootPreds.dbf")
+
+bootPreds<-foreign::read.dbf("spatial/bootPreds.dbf")
 
 # ??predict_maps2_SDF2()
 # Plot RCP predictions
