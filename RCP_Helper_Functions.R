@@ -4,7 +4,9 @@
 ### Works with RCPmod version 2.88                                                    ###
 #########################################################################################
 
-#### load packages----
+#########################
+#### load packages
+#############################
 # Install missing packages and load required packages (if required)
 UsePackages <- function( pkgs, update=FALSE, locn="http://cran.rstudio.com/" ) {
   # Identify missing (i.e., not yet installed) packages
@@ -19,8 +21,12 @@ UsePackages <- function( pkgs, update=FALSE, locn="http://cran.rstudio.com/" ) {
   # Update packages if requested
   if( update ) update.packages( ask=FALSE )
 }  # End UsePackages function
+#############################
 
-#### poly_data----
+
+#############################
+#### poly_data
+#############################
 # Generate orthogonal polynomials for RCPmod input. Useful to avoid convergence problems
 # Save polynomial bases to transform prediction space
 
@@ -43,9 +49,12 @@ poly_data<-function(poly_vars,      #vector of predictor variable names to creat
   
   return(list(rcp_data=rcp_data, poly_output=store_polys))
 }
+#############################
 
 
-### poly_pred_space----
+#############################
+### poly_pred_space
+#############################
 # Transforming prediction space using same basis as orthogonal polynomials used to build models
 # Note: only accomodates one sampling term at the moment
 # Note: offset isn't actually used in predict function that predicts RCP membership, but will keep as it might be useful to predict expected abundance of species at site.
@@ -84,9 +93,11 @@ poly_pred_space<-function(pred_space,             #dataframe containing variable
   
   return(pred_polys_df)
 }
+#############################
 
-
-
+#############################
+### sp_abund_gen
+#############################
 #### Calculate average SD and CI of species abundances in each RCP in each level of sampling factor.
 # Updated by K. Gale to be generalized to any input/any sampling levels 
 # Requires:
@@ -94,7 +105,7 @@ poly_pred_space<-function(pred_space,             #dataframe containing variable
 # covariates.species= the species input table that contains a field for the sampling level (sample_vars, defined at start of RCP Mod)
 # Right now cannot do a version without the sampling level
 
-Sp_abund_gen<-function(boot_obj, covariates.species) {
+sp_abund_gen<-function(boot_obj, covariates.species) {
   
   require(tidyr)
   invlogit<-function(x){exp(x)/(1+exp(x))}
@@ -136,7 +147,6 @@ Sp_abund_gen<-function(boot_obj, covariates.species) {
     names(temp_alphas)<-gsub("^A_","A-",names(temp_alphas)) #not super generalized
     names(temp_alphas)<-gsub("^I_","I-",names(temp_alphas))
     
-    
     #gamma. Species dependence on covariates.
     temp_gamma<-data.frame(value=boot_obj[i,gammas])
     rownames(temp_gamma)<-gsub("^A_","A-",rownames(temp_gamma)) #not super generalized
@@ -163,9 +173,8 @@ Sp_abund_gen<-function(boot_obj, covariates.species) {
     
     #Add base case prevalence to results list
     
-    
-    results[names(results)==base][[1]][[i]] <- as.matrix(round(invlogit( lps),2)) #make pretty. This is the species prevalence in each RCP in base. ###Changed this and the following from exp(lps) to exp(lps)/(1-exp(lps)) for the p/a dataset -- are all the alpha outputs on the logit scale? 
-    
+    results[names(results)==base][[1]][[i]] <- as.matrix(round(invlogit( lps),2)) #make pretty. This is the species prevalence in each RCP in base. 
+    ###Changed this and the following from exp(lps) to exp(lps)/(1-exp(lps)) for the p/a dataset -- are all the alpha outputs on the logit scale? 
     
     #calculate values for each sampling level
     for (x in 1:length(notbase)){
@@ -206,7 +215,12 @@ Sp_abund_gen<-function(boot_obj, covariates.species) {
   final_cast$RCP<-gsub("X","",final_cast$RCP)
   
   return(final_cast)}
+#############################
 
+
+#############################
+### sp_abund_plot
+#############################
 #### 
 # Plot output of sp_abund_gen to get predicted prevalence of each species in each RCP. 
 # Option bySampleEffect specifies whether results are broken down by Sampling Effect (E.g., survey)
@@ -258,27 +272,104 @@ require(ggplot2)
    labs(color=sampleEffectName)
   }
 }
+#############################
 
+#############################
 ## Indicator Species
+#############################
 
-# require(labdsv)
-# require(reshape2)
-# 
-# 
-# 
-# sp_abund1<-data.frame(sp_abund[,c("species","mean","RCP")])
-# sp_melt<- melt(sp_abund1, id.vars=c("species","RCP"), measure.vars=c("mean")) 
-# sp_cast<-cast(sp_melt, RCP~species, fun="mean")
-# 
-# ind<-indval(sp_cast[2:ncol(sp_cast)], sp_cast$RCP)
-# 
-# indvals<-melt(data.frame(species=row.names(ind$indval),ind$indval))
-# abund<-melt(data.frame(species=row.names(ind$relabu),ind$relabu))
-# maxcl<-melt(data.frame(species=names(ind$maxcls),ind$maxcls))
-# 
-# data.frame
+#This function calculates "indicator species" for each RCP. I.e., species that are more often present in a given RCP than they are in otheres. 
+#It uses the "point predictions" straight from the model out of predict.regimix (not the bootstrapped predictions), although it could be adjusted to use bootstrapped data as well. 
 
-#### sampling_dotplot---
+# #Examples for input
+# RCP_boot<-readRDS("D:/Documents/Projects/WorldClass_DiveSurveys/RCP/Models/2018-08-13/RCPSamp_boots.rds")
+# spEnv_poly_data<-readRDS("D:/Documents/Projects/WorldClass_DiveSurveys/RCP/Models/2018-08-13/rcp_data.rds")
+# RCPmod_surv<-readRDS("D:/Documents/Projects/WorldClass_DiveSurveys/RCP/Models/2018-08-13/nRCPsamp_fin.rds")
+# RCPsamp_preds_intialSites<-predict.regimix(object=RCPmod_surv, object2=RCP_boot, newdata=spEnv_poly_data)
+# 
+# inputSitexSpeciesData<-spEnv_poly_data
+# predictedRCPprobs<-RCPsamp_preds_intialSites
+# id_var<-"SourceKey"
+# species<-names(inputSitexSpeciesData)[c(3:161)]
+# indvalCutoff<-0.1
+# pValCutoff<-0.05
+
+# inputSitexSpeciesData<-spEnv_poly_data
+# predictedRCPprobs<-RCP_preds_intialSites
+# id_var<-"SourceKey"
+# species<-species
+# indvalCutoff<-0
+# pValCutoff<-NA
+
+
+RCPindSp<-function(inputSitexSpeciesData, #the input site x species dataframe. Can have extra columns (e.g., the full species-enviro table)
+                   predictedRCPprobs,  #output of predict.regimix that was predicted onto newdata=inputSitexSpeciesData
+                   indvalCutoff, #indval cutoff for including indicator species. usually between 0.15 and 0.25.  
+                   pValCutoff, #pvalue cutoff for including indicator species. e.g., 0.05. If no cutoff, set to NA 
+                   id_var, #the field name for the record IDs. Eg. SourceKey
+                   species # a vector of species names, e.g., from colnames of input species data
+                   ){
+  
+  require(labdsv)
+  require(reshape)
+  
+  dat<-cbind.data.frame(inputSitexSpeciesData[,names(inputSitexSpeciesData)%in% c(id_vars,species)], predictedRCPprobs[[1]])
+  dat$ProbHighest<-apply(dat[,names(data.frame(predictedRCPprobs[[1]]))],1,function(x) which(x==max(x)))
+  
+  dat_melt<-melt(dat[,!names(dat) %in% names(data.frame(predictedRCPprobs[[1]]))], id.vars=c("SourceKey","ProbHighest"))
+  dat_cast<-cast(dat_melt, SourceKey+ProbHighest~variable, fun="mean")
+  
+  #Remove species that do not occur in any site ## FLAG in input data why this is occuring
+  specsums<-colSums(dat_cast[,species])
+  names(specsums)<-names(dat_cast[,species])
+  zeroSpec<-names(specsums[specsums==0])
+  dat_cast<-dat_cast[,!names(dat_cast)%in% zeroSpec]
+  speciesNew<-species[species%in% names(dat_cast)]
+  
+  #Run indval analysis
+  ind<-indval(dat_cast[,speciesNew], dat_cast$ProbHighest) 
+  
+  indv<-data.frame(species=row.names(ind$indval), round(ind$indval,3))
+  names(indv)<-c("species",paste0("indval_RCP",gsub("X","",names(indv[,2:ncol(indv)]))))
+  abu<-data.frame(species=row.names(ind$relabu), round((ind$relabu*100),1))
+  names(abu)<-c("species",paste0("freq_RCP",gsub("X","",names(abu[,2:ncol(abu)]))))
+  cls<-gsub("indval_RCP","",names(indv)[2:length(names(indv))])
+  maxcls<-data.frame(species=names(ind$maxcls), maxRCP=as.numeric(as.character(cls[ind$maxcls]))) #maxcls is the INDEX OF the class each species has the maximum indicator value for
+  
+  pval<-data.frame(species=names(ind$pval),pval= ind$pval) #the class each species has the maximum indicator value for
+  
+  intab<-cbind(maxcls,pval=pval[,-1],indv[,-1], abu[,-1])
+ 
+  if(!is.na(pValCutoff)){
+  intabSub<-intab[intab$pval<=pValCutoff,]
+  } else { intabSub<-intab}
+
+  topSp<-list()
+  for (i in min(intabSub$maxRCP):max(intabSub$maxRCP)){
+  
+    intabSubx<-intabSub[intabSub$maxRCP==i,]
+      indCol<-grep(paste0("indval_RCP",i),names(intabSubx))
+      freqCol<-grep(paste0("freq_RCP",i),names(intabSubx)) 
+    intabSubx<-intabSubx[order(-intabSubx[,indCol]),]
+    intabSubx<-intabSubx[!is.na(intabSubx$species),]
+    intabSubxLim<-intabSubx[intabSubx[,indCol]>=indvalCutoff,]
+    intabSubxLim$indvalInMaxRCP<-intabSubxLim[,indCol]
+    intabSubxLim$freqInMaxRCP<-intabSubxLim[,freqCol]
+    intabSubxLim[,freqCol]<-NA
+    intabSubxLim<-intabSubxLim[,c("species","maxRCP","indvalInMaxRCP","freqInMaxRCP",names(abu[,2:ncol(abu)]))]
+    intabSubxLim
+    topSp[[i]]<-intabSubxLim
+  }
+  
+  topSpdf<-do.call("rbind",topSp)
+
+  return(topSpdf)
+}
+
+
+#############################
+### sampling_dotplot
+#############################
 # Produce dotplot of sampling-level coefficients (and 95% CI) for each species
 
 sampling_dotplot2<-function(best_mod,              # output of regimix function for final model
@@ -330,15 +421,15 @@ sampling_dotplot2<-function(best_mod,              # output of regimix function 
           })            
   
 }
+#############################
 
 
-
-#####predict_maps2_SDF2----
+#############################
+### predict_maps2_SDF2
+#############################
 # Plot RCP predictions
 # S. Foster version, modified for vertical instead of horizontal RCP layout
-
-
-
+# KG Note: I can't get rasterize to work, so wrote a different way below
 
 predict_maps2_SDF2 <- function(predictions,     #output from predict.regimix
                                pred_space,      #dataframe containing coordinates for the prediction space
@@ -440,3 +531,50 @@ predict_maps2_SDF2 <- function(predictions,     #output from predict.regimix
   
   return( NULL)
 }
+#############################
+
+
+#############################
+### predictClasses
+#############################
+#### Using the rasters of environmental space, and the output from predict.regimix, 
+#### write a raster either of the predicted RCP for each cell of the env space or the probability of prediction of each cell 
+## This function takes a while for big raster bases
+
+predictClasses<-function(pred_space,      #output of env rasterToPoints (not transformed) (e.g., envRasterPoints)
+                         RCPsamp_preds,     #output from predict.regimix
+                         outFileName,        #output raster name, with path and .tif extension
+                         outputType          #one of "classes" or "prob" (probabilities)
+)              
+  
+{ 
+  require(raster)
+  dat<-SpatialPointsDataFrame(coords= pred_space[,1:2], data=as.data.frame(RCPsamp_preds$bootPreds))
+  
+  data<-dat@data
+  data$ProbHighest<-apply(data,1,function(x) which(x==max(x)))
+  data$ProbHighest<-as.numeric(data$ProbHighest)
+  data$HighestProb<-apply(data[,c(1:3)],1,FUN=max)
+  
+  #Write raster of predicted output classes OR probabilities for predicted output classes. 
+  if(outputType=="classes"){
+    dat2<-SpatialPointsDataFrame(coords= pred_space[,1:2], data=as.data.frame(data$ProbHighest))
+    names(dat2)<-"ProbHighest"
+    dat2<-dat2[!is.na(dat2$ProbHighest),]
+  } else {
+    if(outputType=="prob"){
+      dat2<-SpatialPointsDataFrame(coords= pred_space[,1:2], data=as.data.frame(data$HighestProb))
+      names(dat2)<-"ProbHighest"
+      dat2<-dat2[!is.na(dat2$ProbHighest),]
+    } else {
+      "not an accepted output type"
+    } }
+  
+  datdf<-as.data.frame(dat2)
+  datdf<-datdf[,c(2,3,1)]
+  
+  r <- rasterFromXYZ(datdf)
+  proj4string(r)<-CRS("+proj=aea +lat_1=50 +lat_2=58.5 +lat_0=45 +lon_0=-126 +x_0=1000000 +y_0=0 +datum=NAD83 +units=m +no_defs")
+  writeRaster(r, outFileName, overwrite=T)
+}
+#############################
