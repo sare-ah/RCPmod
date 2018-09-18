@@ -8,81 +8,75 @@
 # Date:       August 2, 2018
 ######################################################################################################################
 
-#set up
+##### 
+# Set up
+##### 
 # Set working directory - move back to parent directory
 setwd('..')
+dir<-getwd()
 
 outdir <- file.path("./Models", Sys.Date() )  # Set this to Models/Tday's Date/...
 suppressWarnings( dir.create( "../",outdir, recursive = TRUE ) )
 
+#Location of rasters
+rasLoc<-c("D:/Documents/!GIS Files/EnvironmentalRasters/Nearshore/Rasters/")
+
 # Load helper functions
-# =====================
-# contains additional functions for installing packages, data transformations, plotting etc.
 source("Scripts/RCP_Helper_Functions.R")
 
 # Make packages available
 UsePackages( pkgs=c("dplyr","RCPmod", "raster", "rasterVis", "tidyr","corrplot") ) 
 
+##### 
+# Transform input (site x species+env) data first
+####
 # Load species data to get only the environmental variables of interest 
 spEnv<- read.csv("./Data/SpeciesMatrix_withEnviro/SpeciesByDepthSpatialEnviroRemCor.csv", header=T, stringsAsFactors=F)
 spEnv<-spEnv[spEnv$area=="NCC",] #confirm NCC only
-covariates.species <- spEnv[!names(spEnv)%in% c( "TransDepth","fcode","BoP1","BoP2","area","surv","coords.x1","coords.x2","optional")]
-species <- names(covariates.species)[2:160] #159 species
-enviro.variables<-names(covariates.species)[162:ncol(covariates.species)] #11 enviro
+spEnv <- spEnv[!names(spEnv)%in% c( "TransDepth","fcode","BoP1","BoP2","area","surv","coords.x1","coords.x2","optional")]
+species <- names(spEnv)[2:160] #159 species
+enviro.variables<-names(spEnv)[162:ncol(spEnv)] #11 enviro
+enviro.variables<-c("bathy","fetchSum","FBPI")
 
 id_vars="SourceKey" # Unique identifier for each record
 sample_vars="Survey" # Field or fields that describe potential sampling effects
 
-# Load rasters & create dataframe of prediction space --- NEED to set environmental layers up to be read in as a raster brick (?I think?)
-setwd("D:/Documents/!GIS Files/EnvironmentalRasters/Nearshore/Rasters/")
-rasSub<-stack(paste0(enviro.variables,".tif"))
-
-# Set working directory - move back to parent directory
-setwd('..')
-
-# Convert rasters to dataframe and log transform depth
-pred_space_rcp <- as.data.frame(rasterToPoints(rasSub))
-pred_space_rcp <- na.omit( pred_space_rcp )
-saveRDS(pred_space_rcp, file=paste0(outdir, "/pred_space_rcp.rds"))
-pred_space_rcp<-readRDS(paste0(outdir, "/pred_space_rcp.rds"))
-
-# Generate datafile with orthogonal polynomial terms (not run 22 Aug)
-
-# ??poly_data() --- creates a list of two objects
-# 1. Generate orthogonal polynomials for RCPmod input
-# 2. Save polynomial bases to transform prediction space
-# poly_data(predictor vars, poly degrees, vars not transformed, sampling level, species, data)
-rcp_poly <- poly_data(poly_vars=enviro.variables, degree=c(rep(1, length(enviro.variables))), 
+# Transform environmental variables in input data into orthogonal polynomial terms
+spEnv_poly_list <- poly_data(poly_vars=enviro.variables, degree=c(rep(1, length(enviro.variables))), 
                       id_vars=id_vars,sample_vars=sample_vars, 
-                      species_vars=species, data=covariates.species)
+                      species_vars=species, data=spEnv)
+spEnv_poly_data <- spEnv_poly_list$rcp_data
 
-rcp_data <- rcp_poly$rcp_data
+saveRDS(spEnv_poly_data, file=paste0( outdir, "/spEnv_poly_data.rds"))
+saveRDS(spEnv_poly_list, file=paste0( outdir, "/spEnv_poly_list.rds"))
 
-saveRDS(rcp_poly, file=paste0( outdir, "/rcp_poly.rds"))
-saveRDS(rcp_data, file=paste0( outdir, "/rcp_data.rds"))
+##### 
+# Transform environmental space (raster stack) 
+####
+# Load rasters in as raster stack then go back to project working directory
+setwd(rasLoc)
+ras<-stack(paste0(enviro.variables,".tif"))
+setwd(dir)
 
+# Convert rasters to dataframe
+envRasterPoints <- as.data.frame(rasterToPoints(ras))
+envRasterPoints <- na.omit( envRasterPoints )
+saveRDS(envRasterPoints, file=paste0(outdir, "/envRasterPoints.rds"))
 
-# ??poly_pred_space()  
 # Transform using stored polys, predict and plot results
-# Note: only accomodates one sampling term at the moment
-# poly_pred_space(enviro.pts, orthogonal polynomials, sampling_vals, sampling_name, sampling_factor_levels)
-rcp_poly_pred <- poly_pred_space(pred_space_rcp, rcp_poly$poly_output, 
-                                 sampling_vals=NULL, 
-                                 sampling_name=NULL, sampling_factor_levels =NULL)
-
-saveRDS(rcp_poly_pred, file=paste0(outdir, "/rcp_poly_pred.rds"))
+envRasterPoints_poly <- poly_pred_space(envRasterPoints, spEnv_poly_list$poly_output,sampling_vals=NULL,sampling_name=NULL, sampling_factor_levels =NULL)
+saveRDS(envRasterPoints_poly, file=paste0(outdir, "/envRasterPoints_poly.rds"))
 
 #Transform environmental space again, but with sampling levels
-#Right now this makes outputs IDENTICAL to the poly_pred_space, and identical for each factor level, differing only by an  an extra column with the survey name.
-#What is the use of this??
-sampling_factor_levels<-unique(covariates.species$Survey)
+#Right now this makes outputs IDENTICAL to the poly_pred_space, and identical for each factor level, differing only by an  an extra column with the survey name. Not sure what the point is.
 
-for (i in 1:length(sampling_factor_levels)){
-rcp_poly_pred <- poly_pred_space(pred_space_rcp, rcp_poly$poly_output, 
-                                 sampling_vals=sampling_factor_levels[i], 
+sampling_factor_levels<-unique(spEnv$Survey)
+
+#for (i in 1:length(sampling_factor_levels)){
+envRasterPoints_poly_level <- poly_pred_space(envRasterPoints, spEnv_poly_list$poly_output,sampling_vals=sampling_factor_levels[1],
                                  sampling_name="Survey", sampling_factor_levels =sampling_factor_levels)
 
-saveRDS(rcp_poly_pred, file=paste0(outdir, "/rcp_poly_pred_level_",sampling_factor_levels[i],".rds" ))
-}
+saveRDS(envRasterPoints_poly_level, file=paste0(outdir, "/envRasterPoints_poly_level_",sampling_factor_levels[1],".rds" ))
+#}
 
 
