@@ -298,7 +298,7 @@ require(ggplot2)
 # predictedRCPprobs<-RCP_preds_intialSites
 # id_var<-"SourceKey"
 # species<-species
-# indvalCutoff<-0
+# indvalCutoff<-0.15
 # pValCutoff<-NA
 
 
@@ -348,21 +348,29 @@ RCPindSp<-function(inputSitexSpeciesData, #the input site x species dataframe. C
   for (i in min(intabSub$maxRCP):max(intabSub$maxRCP)){
   
     intabSubx<-intabSub[intabSub$maxRCP==i,]
+    intabSubx$species<-as.character(intabSubx$species)
       indCol<-grep(paste0("indval_RCP",i),names(intabSubx))
       freqCol<-grep(paste0("freq_RCP",i),names(intabSubx)) 
     intabSubx<-intabSubx[order(-intabSubx[,indCol]),]
     intabSubx<-intabSubx[!is.na(intabSubx$species),]
     intabSubxLim<-intabSubx[intabSubx[,indCol]>=indvalCutoff,]
-    intabSubxLim$indvalInMaxRCP<-intabSubxLim[,indCol]
-    intabSubxLim$freqInMaxRCP<-intabSubxLim[,freqCol]
-    intabSubxLim[,freqCol]<-NA
+
+    if(nrow(intabSubxLim)==0){
+      intabSubxLim[1,c(1:2)]<-c("no ind species",i)
+      intabSubxLim$indvalInMaxRCP<-NA
+      intabSubxLim$freqInMaxRCP<-NA
+    
+        } else {
+          intabSubxLim$indvalInMaxRCP<-unlist(c(intabSubxLim[,indCol]))
+          intabSubxLim$freqInMaxRCP<-unlist(c(intabSubxLim[,freqCol]))
+          intabSubxLim[,freqCol]<-NA
+          }
     intabSubxLim<-intabSubxLim[,c("species","maxRCP","indvalInMaxRCP","freqInMaxRCP",names(abu[,2:ncol(abu)]))]
     intabSubxLim
     topSp[[i]]<-intabSubxLim
   }
   
   topSpdf<-do.call("rbind",topSp)
-
   return(topSpdf)
 }
 
